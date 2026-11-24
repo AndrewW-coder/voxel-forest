@@ -176,7 +176,7 @@ const moonBall=new THREE.Mesh(new THREE.BoxGeometry(6,6,6),new THREE.MeshBasicMa
 scene.add(sunBall,moonBall);
 const starGeo=new THREE.BufferGeometry();{const p=[];for(let i=0;i<600;i++){const a=Math.random()*Math.PI*2,y=Math.random()*.9+.08,r=Math.sqrt(1-y*y);p.push(Math.cos(a)*r*260,y*260,Math.sin(a)*r*260)}starGeo.setAttribute('position',new THREE.Float32BufferAttribute(p,3))}
 const starMat=new THREE.PointsMaterial({color:'#fff',size:1.5,sizeAttenuation:false,transparent:true,opacity:0,fog:false,depthWrite:false});
-scene.add(new THREE.Points(starGeo,starMat));
+const starPts=new THREE.Points(starGeo,starMat);starPts.frustumCulled=false;scene.add(starPts);
 
 // ---------- terrain ----------
 const N=144, HALF=N/2, W=3, HMAX=30;
@@ -420,7 +420,7 @@ function chunkInst(baseGeo,mat,items,asz,fill,range,kind){
     const ci=Math.floor(k/NCS),cj=k%NCS,c=new THREE.Vector3(cx(ci*CS+CS/2),14,cx(cj*CS+CS/2));
     im.boundingSphere=new THREE.Sphere(c,CS*.72+18);im.receiveShadow=true;scene.add(im);lodSets.push({im,c,range,kind})}}
 let fernOn=true;
-function updateLod(){const cp=camera.position;for(const L of lodSets){const d=Math.hypot(cp.x-L.c.x,cp.z-L.c.z);L.im.visible=d<L.range+CS&&(L.kind!=='fern'||fernOn)}}
+function updateLod(){const cp=camera.position;for(const L of lodSets){const d=Math.hypot(cp.x-L.c.x,cp.z-L.c.z);L.im.visible=d<L.range*(pov?.5:1)+CS&&(L.kind!=='fern'||fernOn)}}
 // grass blades + shoreline reeds
 const bladeGeo=new THREE.BoxGeometry(.07,1,.07);bladeGeo.translate(0,.5,0);
 const bladeMat=shaderMod(new THREE.MeshLambertMaterial({color:'#5aa83d'}),'blade','attribute vec3 aB;',
@@ -936,9 +936,9 @@ function updateSky(s){
   sun.intensity=moon?.55*sm(0,.3,-el):2.7*daylight*(1-.5*wet);
   sun.color.copy(moon?MOONC:SUNLOW.clone().lerp(SUNC,sm(0,.4,el)));
   hemi.intensity=.22+.9*daylight*(1-.25*wet);hemi.color.copy(sky).lerp(C('#ffffff'),.3);
-  sunBall.position.copy(sdir).multiplyScalar(220);sunBall.visible=el>-.1;sunBall.lookAt(camera.position);
-  moonBall.position.copy(mdir).multiplyScalar(220);moonBall.visible=el<.1;moonBall.lookAt(camera.position);
-  starMat.opacity=(1-daylight)*(1-wet)*.9;
+  sunBall.position.copy(sdir).multiplyScalar(220).add(camera.position);sunBall.visible=el>-.1;sunBall.lookAt(camera.position);
+  moonBall.position.copy(mdir).multiplyScalar(220).add(camera.position);moonBall.visible=el<.1;moonBall.lookAt(camera.position);
+  starMat.opacity=(1-daylight)*(1-wet)*.9;starPts.position.copy(camera.position);
 }
 function updateClouds(dt){const wet=weather.amt,n=.3+wet*.7;cloudMat.color.setRGB(1,1,1).lerp(C('#8a929c'),wet).multiplyScalar(.35+.65*daylight);
   for(const g of clouds){g.position.x+=wind*dt*1.2;if(g.position.x>155)g.position.x=-155;g.visible=g.userData.th<n}}
@@ -1618,7 +1618,7 @@ function frame(){
   if(!jumped)for(const[at,msg]of MILES)if(crossed(prevS,s,at)&&prevS!==s)log(msg);
   prevS=s;
   // seasonal recolouring only when the season has actually moved (nothing at all while paused)
-  visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.003)){updateSeasonVisuals(s,jumped);visS=s;visT=.12;jumped=false}
+  visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.006)){updateSeasonVisuals(s,jumped);visS=s;visT=.3;jumped=false}
   if((++shF%(4-quality))===0||jumped)renderer.shadowMap.needsUpdate=true;
   updateSky(s);updateLod();updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);updateSmallLife(rdt,s);updateFire(rdt,s);govern(rdt);
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
