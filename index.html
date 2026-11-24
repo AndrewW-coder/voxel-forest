@@ -168,6 +168,18 @@ const cellH=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return inB(i
 const groundY=(x,z)=>{const h=cellH(x,z);return h>=W?h:W-.15};
 const walk=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return i>=1&&j>=1&&i<N-1&&j<N-1&&H[i][j]>=W&&!blocked[i*N+j]};
 const isWater=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return i>=1&&j>=1&&i<N-1&&j<N-1&&H[i][j]<W};
+// Shared shader inputs: plants are coloured, hidden and swayed on the GPU, so seasons cost almost no CPU.
+// cellTex holds one texel per ground cell: R grass height (wear, grazing, fire), G snow threshold, B scorch.
+const cellData=new Uint8Array(N*N*4);for(let k=0;k<N*N;k++){cellData[k*4]=255;cellData[k*4+1]=128;cellData[k*4+3]=255}
+const cellTex=new THREE.DataTexture(cellData,N,N,THREE.RGBAFormat,THREE.UnsignedByteType);cellTex.magFilter=cellTex.minFilter=THREE.NearestFilter;cellTex.needsUpdate=true;
+const WU={uTime:{value:0},uWind:{value:1},uS:{value:0},uFol:{value:1},uSnow:{value:0},uSnowC:{value:new THREE.Vector3()},uCell:{value:cellTex}};
+function shaderMod(mat,key,head,begin,afterColor){
+  mat.customProgramCacheKey=()=>key;
+  mat.onBeforeCompile=sh=>{for(const k in WU)sh.uniforms[k]=WU[k];
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nuniform float uTime,uWind,uS,uFol,uSnow;uniform vec3 uSnowC;uniform sampler2D uCell;\n'+head)
+      .replace('#include <begin_vertex>',begin);
+    if(afterColor)sh.vertexShader=sh.vertexShader.replace('#include <color_vertex>','#include <color_vertex>\n'+afterColor)};
+  return mat}
 // a winding deer trail across the hollow
 const trail=new Uint8Array(N*N);
 {const ph=R(0,6),amp=R(10,16);for(let t=0;t<N;t+=.25){const i=Math.floor(t),j=Math.floor(N/2+Math.sin(t*.075+ph)*amp+Math.sin(t*.21+ph*2)*3);for(const dj of[0,1])if(inB(i,j+dj)&&H[i][j+dj]>W)trail[i*N+j+dj]=1}}
@@ -175,7 +187,7 @@ const trail=new Uint8Array(N*N);
 const box1=new THREE.BoxGeometry(1,1,1);
 const lamW=()=>new THREE.MeshLambertMaterial({color:'#fff'});
 const DIRT=C('#7a5532'),STONE=C('#7d7f84'),SAND=C('#d6c08a'),WETSAND=C('#b29f70'),SNOW=C('#eef4fa');
-const tBlocks=[],tops=[];
+const tBlocks=[],tops=[],topOf=new Array(N*N).fill(null);
 for(let i=0;i<N;i++)for(let j=0;j<N;j++){
   const h=H[i][j];let mn=h;
   for(const[di,dj]of[[1,0],[-1,0],[0,1],[0,-1]]){const a=i+di,b=j+dj;mn=Math.min(mn,inB(a,b)?H[a][b]:0)}
@@ -183,7 +195,7 @@ for(let i=0;i<N;i++)for(let j=0;j<N;j++){
     const jit=y===h-1?.86+vnoise(i*.3+ox,j*.3+oz)*.2+R(-.03,.03):R(.9,1.08);let col;
     if(y===h-1){
       if(h<W)col=WETSAND.clone().multiplyScalar(jit);
-      else{tops.push({idx:tBlocks.length,kind:h===W?'sand':trail[i*N+j]?'path':'grass',jit,snowR:R(.03,.95),lit:0,litC:C(pick(['#b8642a','#c98a2e','#9c4a22','#d0a040'])),i,j});col=C('#fff')}
+      else{const t={idx:tBlocks.length,kind:h===W?'sand':trail[i*N+j]?'path':'grass',jit,snowR:R(.03,.95),lit:0,litC:C(pick(['#b8642a','#c98a2e','#9c4a22','#d0a040'])),i,j,wear:0,graze:0,burn:0};tops.push(t);topOf[i*N+j]=t;cellData[(j*N+i)*4+1]=Math.round(t.snowR*255);col=C('#fff')}
     }else col=(y>=h-3?DIRT:STONE).clone().multiplyScalar(jit);
     tBlocks.push([cx(i),y+.5,cx(j),col]);
   }
@@ -232,7 +244,7 @@ for(let a=0;a<4000&&trees.length<230;a++){
   if(h<=W||blocked[i*N+j]||trail[i*N+j]||Math.hypot(i-pond.i,j-pond.j)<pond.r+1.5||Math.abs(i-den.i)<4&&Math.abs(j-den.j)<5)continue;
   if(trees.some(t=>Math.hypot(t.i-i,t.j-j)<2.7))continue;
   const type=rnd()<(h>=8?.6:.2)?'pine':pick(['oak','oak','birch','maple','cherry','oak','birch','maple']);
-  trees.push({i,j,type});blocked[i*N+j]=1;
+  const tree={i,j,type,x:cx(i),z:cx(j),base:h,g:1,dead:false,char:0,st:'alive',t0:trunkList.length,l0:leaves.length};trees.push(tree);blocked[i*N+j]=1;
   const x=cx(i),z=cx(j),base=h,bark=C(BARK[type]);
   const th={pine:RI(4,6),oak:RI(3,5),birch:RI(4,6),maple:RI(3,5),cherry:RI(2,3)}[type];
   for(let y=0;y<th;y++){
@@ -262,23 +274,44 @@ for(let a=0;a<4000&&trees.length<230;a++){
     for(const[ax,ay,az]of FACES)if(!key.has(`${dx+ax},${y+ay},${dz+az}`)&&rnd()<(ay<0?.1:.2)) // half-size tufts make a ragged outline
       mkLeaf(type,x+dx+ax*.7+(ax?0:R(-.22,.22)),y+.5+ay*.7+(ay?0:R(-.22,.22)),z+dz+az*.7+(az?0:R(-.22,.22)),.5,ay===1,hf);
   }
+  tree.t1=trunkList.length;tree.l1=leaves.length;tree.th=th;for(let k=tree.l0;k<tree.l1;k++)leaves[k].tr=tree;
 }
 // shrubs (half-size voxels), some with berries
-const berrySpots=[];
+const berrySpots=[],bushes=[];
 for(let a=0,n=0;a<3000&&n<170;a++){
   const i=RI(2,N-3),j=RI(2,N-3),h=H[i][j];if(h<=W||blocked[i*N+j]||trail[i*N+j])continue;n++;
   const x=cx(i)+R(-.2,.2),z=cx(j)+R(-.2,.2),rx=R(.8,1.25),ry=R(.55,.85),berry=rnd()<.45,ks=new Set(),cs=[];
+  const bush={i,j,x,z,base:h,g:1,dead:false,char:0,st:'alive',bush:true,l0:leaves.length,berry};bushes.push(bush);
   for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)for(let dy=0;dy<=3;dy++){const px=dx*.5,pz=dz*.5,py=dy*.5+.25;if((px*px+pz*pz)/(rx*rx)+(py*py)/(ry*ry)<=1&&rnd()>.1){cs.push([dx,dy,dz]);ks.add(dx+','+dy+','+dz)}}
   for(const[dx,dy,dz]of cs){const top=!ks.has(dx+','+(dy+1)+','+dz);mkLeaf('bush',x+dx*.5,h+dy*.5+.25,z+dz*.5,.5,top,dy/3);
-    if(berry&&top&&rnd()<.55)berrySpots.push({x:x+dx*.5+R(-.15,.15),y:h+dy*.5+.48,z:z+dz*.5+R(-.15,.15)})}
+    if(berry&&top&&rnd()<.55)berrySpots.push({x:x+dx*.5+R(-.15,.15),y:h+dy*.5+.48,z:z+dz*.5+R(-.15,.15),bush})}
+  bush.l1=leaves.length;for(let k=bush.l0;k<bush.l1;k++)leaves[k].tr=bush;
 }
 const trunks=new THREE.InstancedMesh(box1,lamW(),trunkList.length);
 {const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();trunkList.forEach((b,k)=>{m.compose(v.set(b[0],b[1],b[2]),q,sc.set(b[4],b[5],b[6]));trunks.setMatrixAt(k,m);trunks.setColorAt(k,b[3])})}
 trunks.castShadow=trunks.receiveShadow=true;scene.add(trunks);
-const leafM=(L,m)=>m.makeScale(L.sc,L.sc,L.sc).setPosition(L.x,L.y,L.z);
-const leafMesh=new THREE.InstancedMesh(box1,lamW(),leaves.length);
-{const m=new THREE.Matrix4();leaves.forEach((L,k)=>{leafMesh.setMatrixAt(k,leafM(L,m));leafMesh.setColorAt(k,C('#4a4'))})}
+// leaves of a growing tree are scaled towards its base
+const leafM=(L,m)=>{const T=L.tr,g=T?T.g:1;if(g>=1)return m.makeScale(L.sc,L.sc,L.sc).setPosition(L.x,L.y,L.z);const q=L.sc*Math.max(.02,g);return m.makeScale(q,q,q).setPosition(T.x+(L.x-T.x)*g,T.base+(L.y-T.base)*g,T.z+(L.z-T.z)*g)};
+const LEAF_GLSL=`attribute vec3 aSp;attribute vec3 aSu;attribute vec3 aAu;attribute vec4 aP;attribute vec4 aQ;attribute vec2 aT;
+bool leafHidden(){return aT.y>.5||(aP.w>.5&&aP.y>=uFol);}
+vec3 leafCol(){vec3 c;if(aP.w>.5){float ls=uS+aP.x;if(ls>3.5)ls-=4.;c=mix(aSp,aSu,smoothstep(aQ.x,aQ.y,ls));c=mix(c,aAu,smoothstep(1.85,2.4,ls))*aP.z;}
+ else{c=aSp;if(aQ.z>.5&&uSnow>aP.y*.9)c=uSnowC;}return mix(c,vec3(.012,.01,.008),aT.x);}`;
+const LEAF_BEGIN=`vec3 transformed=vec3(position);if(leafHidden())transformed=vec3(0.);else{vec3 ip=instanceMatrix[3].xyz;float ph=uTime*1.4+ip.x*.31+ip.z*.23+ip.y*.17;transformed.x+=sin(ph)*uWind*.05;transformed.z+=cos(ph*.8)*uWind*.035;}`;
+const leafGeo=box1.clone();
+{const n=leaves.length,sp=new Float32Array(n*3),su=new Float32Array(n*3),au=new Float32Array(n*3),P=new Float32Array(n*4),Q=new Float32Array(n*4),T=new Float32Array(n*2);
+ leaves.forEach((L,k)=>{if(L.dec){const D=LEAF[L.type];D.sp.toArray(sp,k*3);D.su.toArray(su,k*3);L.au.toArray(au,k*3);Q[k*4]=D.spr[0];Q[k*4+1]=D.spr[1]}else{L.base.toArray(sp,k*3);Q[k*4]=0;Q[k*4+1]=1}
+   P[k*4]=L.jit;P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
+ const IA=(a,s)=>new THREE.InstancedBufferAttribute(a,s);
+ leafGeo.setAttribute('aSp',IA(sp,3));leafGeo.setAttribute('aSu',IA(su,3));leafGeo.setAttribute('aAu',IA(au,3));leafGeo.setAttribute('aP',IA(P,4));leafGeo.setAttribute('aQ',IA(Q,4));
+ const at=IA(T,2);at.setUsage(THREE.DynamicDrawUsage);leafGeo.setAttribute('aT',at)}
+const leafMesh=new THREE.InstancedMesh(leafGeo,shaderMod(lamW(),'leaf',LEAF_GLSL,LEAF_BEGIN,'vColor=leafCol();'),leaves.length);
+{const m=new THREE.Matrix4(),w=C('#fff');leaves.forEach((L,k)=>{leafMesh.setMatrixAt(k,leafM(L,m));leafMesh.setColorAt(k,w)})}
+leafMesh.customDepthMaterial=shaderMod(new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking}),'leafDepth',LEAF_GLSL,LEAF_BEGIN);
 leafMesh.castShadow=leafMesh.receiveShadow=true;scene.add(leafMesh);
+// CPU mirror of the leaf shader, used for falling-leaf particles and perches
+let curFol=1;
+const lv=L=>{const T=L.tr;return!(T&&(T.dead||T.g<1))&&(!L.dec||L.th<curFol)};
+function leafColor(L,s,o){if(L.dec){let ls=s+L.jit;if(ls>3.5)ls-=4;const T=LEAF[L.type];return o.copy(T.sp).lerp(T.su,sm(T.spr[0],T.spr[1],ls)).lerp(L.au,sm(1.85,2.4,ls)).multiplyScalar(L.sh)}return o.copy(L.base)}
 const decLeaves=leaves.map((L,k)=>L.dec?k:-1).filter(k=>k>=0);
 const cherryLeaves=leaves.map((L,k)=>L.type==='cherry'?k:-1).filter(k=>k>=0);
 // leaf litter near deciduous trees
@@ -327,7 +360,10 @@ boxMesh(props,lamW());
 const mossMat=new THREE.MeshLambertMaterial({color:'#4f8a3a'}),MOSS=C('#4f8a3a');boxMesh(mossL,mossMat);
 // grass blades + shoreline reeds
 const bladeGeo=new THREE.BoxGeometry(.07,1,.07);bladeGeo.translate(0,.5,0);
-const bladeMat=new THREE.MeshLambertMaterial({color:'#5aa83d'});
+const bladeMat=shaderMod(new THREE.MeshLambertMaterial({color:'#5aa83d'}),'blade','attribute vec3 aB;',
+ `vec4 cd=texture2D(uCell,(aB.xy+.5)/${N}.);vec3 transformed=vec3(position);
+  if(aB.z<.5&&(uSnow>cd.g||cd.r<.06))transformed=vec3(0.);
+  else{if(aB.z<.5)transformed.y*=cd.r;vec3 ip=instanceMatrix[3].xyz;float ph=uTime*2.1+ip.x*.5+ip.z*.37,k=position.y*position.y;transformed.x+=sin(ph)*uWind*.13*k;transformed.z+=cos(ph*.7)*uWind*.09*k;}`);
 const blades=[];
 {const v=new THREE.Vector3(),q=new THREE.Quaternion(),e=new THREE.Euler(),sc=new THREE.Vector3();
  for(const t of tops){
@@ -337,19 +373,24 @@ const blades=[];
      blades.push({m:new THREE.Matrix4().compose(v.set(x,H[t.i][t.j],z),q.setFromEuler(e.set(R(-.25,.25),R(0,3),R(-.25,.25))),sc.set(reed?1.3:1,hg,reed?1.3:1)),t,reed,vis:true,c:new THREE.Color().setScalar(reed?R(.7,.85):R(.78,1.15))});
      if(reed&&rnd()<.3)reedTops.push({x,y:H[t.i][t.j]+hg-.05,z});}
  }}
+{const a=new Float32Array(Math.max(1,blades.length)*3);blades.forEach((b,k)=>{a[k*3]=b.t.i;a[k*3+1]=b.t.j;a[k*3+2]=b.reed?1:0});bladeGeo.setAttribute('aB',new THREE.InstancedBufferAttribute(a,3))}
 const bladeMesh=new THREE.InstancedMesh(bladeGeo,bladeMat,Math.max(1,blades.length));
 blades.forEach((b,k)=>{bladeMesh.setMatrixAt(k,b.m);bladeMesh.setColorAt(k,b.c)});bladeMesh.receiveShadow=true;scene.add(bladeMesh);
 let ri=0;const cattails=smallSet(reedTops.length,()=>reedTops[ri++]||null,[.13,.32,.13],[.01,.01,.01],['#5a3a22','#6b4529'],'#5a3a22',[.9,1.2,3.3,3.6]);
 // ferns in the understory
 const frondGeo=new THREE.BoxGeometry(.17,.05,.8);frondGeo.translate(0,0,.4);
-const fernMat=new THREE.MeshLambertMaterial({color:'#4f9a3a'}),FERN_G=C('#4f9a3a'),FERN_B=C('#93703a');
+const fernMat=shaderMod(new THREE.MeshLambertMaterial({color:'#4f9a3a'}),'fern','attribute vec2 aB;',
+ `vec4 cd=texture2D(uCell,(aB+.5)/${N}.);vec3 transformed=vec3(position);if(cd.r<.06)transformed=vec3(0.);
+  else{vec3 ip=instanceMatrix[3].xyz;transformed.y+=sin(uTime*1.6+ip.x*.4+ip.z*.3)*uWind*.07*position.z;}`),FERN_G=C('#4f9a3a'),FERN_B=C('#93703a');
 const fronds=[];
 for(let a=0,n=0;a<3000&&n<380;a++){const t=pick(trees);const i=t.i+RI(-2,2),j=t.j+RI(-2,2);if(!inB(i,j)||H[i][j]<=W||blocked[i*N+j]||trail[i*N+j])continue;n++;
   const x=cx(i)+R(-.3,.3),z=cx(j)+R(-.3,.3),nf=RI(4,6),y0=R(0,6.28),sz=R(.7,1.2);
   for(let k=0;k<nf;k++){const d=new THREE.Object3D();d.position.set(x,H[i][j]+.04,z);d.rotation.set(-R(.35,.7),y0+k*6.28/nf+R(-.2,.2),0,'YXZ');d.scale.setScalar(sz);d.updateMatrix();fronds.push(d.matrix.clone())}}
+{const a=new Float32Array(Math.max(1,fronds.length)*2),v=new THREE.Vector3();fronds.forEach((m,k)=>{v.setFromMatrixPosition(m);a[k*2]=Math.floor(v.x+HALF);a[k*2+1]=Math.floor(v.z+HALF)});frondGeo.setAttribute('aB',new THREE.InstancedBufferAttribute(a,2))}
 const fernMesh=new THREE.InstancedMesh(frondGeo,fernMat,Math.max(1,fronds.length));
 fronds.forEach((m,k)=>{fernMesh.setMatrixAt(k,m);fernMesh.setColorAt(k,new THREE.Color().setScalar(R(.75,1.15)))});fernMesh.receiveShadow=true;scene.add(fernMesh);
 const BL={dry:C('#a89a68'),sp:C('#8ad655'),su:C('#5aa83d'),au:C('#c2a64a')};
+WU.uSnowC.value.set(SNOW.r,SNOW.g,SNOW.b);
 
 const Z=new THREE.Matrix4().makeScale(0,0,0);
 function setWindow(set,s){const m=new THREE.Matrix4();let ch=false;set.items.forEach((f,k)=>{const v=s>=f.on&&s<f.off;if(v===f.vis)return;f.vis=v;ch=true;if(v){m.makeTranslation(f.x,f.y+set.ss[1]+set.hs[1]/2,f.z);set.head.setMatrixAt(k,m);m.makeTranslation(f.x,f.y+set.ss[1]/2,f.z);set.stem.setMatrixAt(k,m)}else{set.head.setMatrixAt(k,Z);set.stem.setMatrixAt(k,Z)}});if(ch){set.head.instanceMatrix.needsUpdate=set.stem.instanceMatrix.needsUpdate=true}}
@@ -458,8 +499,12 @@ function randomWalkable(edge){for(let a=0;a<400;a++){const i=RI(1,N-2),j=RI(1,N-
 function randTarget(x,z,r){for(let k=0;k<10;k++){const tx=x+rr(-r,r),tz=z+rr(-r,r);if(walk(tx,tz)&&Math.abs(cellH(tx,tz)-cellH(x,z))<4)return{x:tx,z:tz}}return null}
 // the walker in POV mode: animals treat them as a threat (less so when sneaking)
 const player={type:'player',alive:true,hidden:true,pos:new THREE.Vector3(),stalk:false};
-function threatOf(e,type,r){const o=nearest(e,type,r);if(player.hidden)return o;const d=dist(e,player);return d<r&&(!o||d<dist(e,o))?player:o}
-function nearest(e,type,r){let best=null,bd=r*r;for(const o of animals){if(o.type!==type||!o.alive||o.hidden||o===e)continue;const dx=o.pos.x-e.pos.x,dz=o.pos.z-e.pos.z,d=dx*dx+dz*dz;if(d<bd){bd=d;best=o}}return best}
+function threatOf(e,types,r){let best=null,bd=r;for(const ty of types){const o=nearest(e,ty,bd);if(o){best=o;bd=dist(e,o)}}
+  if(!player.hidden&&!player.calm){const d=dist(e,player);if(d<bd){best=player;bd=d}}
+  const f=fireThreat(e,bd);return f||best}
+let fireThreat=()=>null; // replaced once fire exists
+const BY={},NONE=[];
+function nearest(e,type,r){let best=null,bd=r*r;for(const o of BY[type]||NONE){if(!o.alive||o.hidden||o===e)continue;const dx=o.pos.x-e.pos.x,dz=o.pos.z-e.pos.z,d=dx*dx+dz*dz;if(d<bd){bd=d;best=o}}return best}
 const angTo=(a,b,mx)=>{const d=((b-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return a+clamp(d,-mx,mx)};
 function stepTo(e,tx,tz,sp,dt,ok=walk){
   const dx=tx-e.pos.x,dz=tz-e.pos.z,d=Math.hypot(dx,dz);if(d<.2){e.mv=0;return true}
@@ -483,7 +528,7 @@ const tod=()=>simDays%1; // .25 sunrise, .5 noon, .75 sunset
 const isNight=()=>{const d=tod();return d<.21||d>.8};
 const twilight=()=>{const d=tod();return Math.abs(d-.24)<.07||Math.abs(d-.77)<.07};
 const perches=leaves.filter(L=>L.top&&L.sc===1);
-function pickPerch(x,z,r){let any=null,best=null,bd=1e9;for(let k=0;k<160;k++){const p=pick2(perches),d=Math.hypot(p.x-x,p.z-z);if(d<bd&&(p.vis||!best||!best.vis)){bd=d;best=p}if(d>r)continue;if(p.vis)return p;any=any||p}return any||best}
+function pickPerch(x,z,r){let any=null,best=null,bv=false,bd=1e9;for(let k=0;k<160;k++){const p=pick2(perches);if(p.tr&&(p.tr.dead||p.tr.g<1))continue;const d=Math.hypot(p.x-x,p.z-z),v=lv(p);if(d<bd&&(v||!bv)){bd=d;best=p;bv=v}if(d>r)continue;if(v)return p;any=any||p}return any||best}
 function nearWater(x,z,r){for(let k=0;k<20;k++){const tx=x+rr(-r,r),tz=z+rr(-r,r);if(isWater(tx,tz))return{x:tx,z:tz}}return null}
 function ease(e,k,v,dt,rate=3){e[k]=(e[k]||0)+(v-(e[k]||0))*Math.min(1,dt*rate);return e[k]}
 // rest 0 = standing, 1 = lying down with legs folded under
@@ -494,7 +539,7 @@ let herd={x:0,z:0,gx:0,gz:0,gt:0,alarm:-99,from:null},duckC={x:0,z:0},simT=0;
 // bird flight: an arc between two points, flapping in bursts with short glides (bounding flight)
 function startFly(e,tx,ty,tz,next,perch){const d=Math.hypot(tx-e.pos.x,ty-e.pos.y,tz-e.pos.z);
   e.fp={sx:e.pos.x,sy:e.pos.y,sz:e.pos.z,tx,ty,tz,t:0,dur:Math.max(.7,d/6.5),arc:Math.min(5,d*.22)+.4};e.act='fly';e.next=next;e.nextPerch=perch;e.hp=null}
-function flyToPerch(e,x,z,r){const p=pickPerch(x,z,r);startFly(e,p.x+rr(-.25,.25),p.y+.67,p.z+rr(-.25,.25),'perch',p)}
+function flyToPerch(e,x,z,r){const p=pickPerch(x,z,r);if(!p){const t=randTarget(x,z,6)||randTarget(e.pos.x,e.pos.z,6);if(t)startFly(e,t.x,groundY(t.x,t.z)+.17,t.z,'ground');return}startFly(e,p.x+rr(-.25,.25),p.y+.67,p.z+rr(-.25,.25),'perch',p)}
 function birdNext(e){const F=e.flock;
   if(isNight()||tod()>.73||weather.amt>.55||Math.random()<.45){flyToPerch(e,F.c.x,F.c.z,14);return}
   const t=randTarget(F.c.x+rr(-6,6),F.c.z+rr(-6,6),4)||randTarget(e.pos.x,e.pos.z,6);if(!t){flyToPerch(e,F.c.x,F.c.z,14);return}
@@ -502,9 +547,10 @@ function birdNext(e){const F=e.flock;
   const lead=F.list.find(b=>b!==e&&b.act==='ground'&&b.alive&&!b.hidden);
   let g=t;if(lead&&Math.random()<.7){const c={x:lead.pos.x+rr(-1.2,1.2),z:lead.pos.z+rr(-1.2,1.2)};if(walk(c.x,c.z))g=c}
   startFly(e,g.x,groundY(g.x,g.z)+.17,g.z,'ground')}
+const BIRD_THREAT=['fox','bear','deer'];
 const UPD={
   rabbit(e,dt,s){
-    const m=mom(e),f=threatOf(e,'fox',10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
+    const m=mom(e),f=threatOf(e,['fox'],10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
     const sense=f&&f.stalk?3.2:8; // a fox creeping low is hard to notice
     let up=0;
     if(f&&(fd<(f.stalk?1.6:3.4)||(e.fear>0&&fd<7))){ // bolt for it, zig-zagging
@@ -545,7 +591,7 @@ const UPD={
     e.tail.rotation.y=Math.sin(simT*(lie?.6:3)+e.phase*.3)*.25;e.tail.rotation.x=e.stalk?.1:-.12;
   },
   deer(e,dt,s){
-    const m=mom(e),b=threatOf(e,'bear',11),bd=b?dist(e,b):99;
+    const m=mom(e),b=threatOf(e,['bear'],11),bd=b?dist(e,b):99;
     if(b&&bd<(b.stalk?3:6.5)){herd.alarm=simT;herd.from=b}
     const fleeing=herd.from&&herd.from.alive&&!herd.from.hidden&&simT-herd.alarm<4.5&&dist(e,herd.from)<18;
     let lie=0,head=1.05,bounce=0;
@@ -602,13 +648,13 @@ const UPD={
     let flap=0,tuck=1,peck=0;
     if(e.st==='returning'){e.st='present';flyToPerch(e,e.flock.c.x,e.flock.c.z,14)}
     if(e.st==='present'){
-      if(!e.act){const p=pickPerch(e.flock.c.x,e.flock.c.z,14);e.perch=p;e.act='perch';e.timer=rr(2,10);e.pos.set(p.x,p.y+.67,p.z)}
+      if(!e.act){const p=pickPerch(e.flock.c.x,e.flock.c.z,14);if(p){e.perch=p;e.act='perch';e.timer=rr(2,10);e.pos.set(p.x,p.y+.67,p.z)}else{e.act='ground';e.timer=5;e.hopT=1;const[x,z]=randomWalkable();e.pos.set(x,groundY(x,z)+.17,z)}}
       if(e.act==='fly'){const p=e.fp;p.t+=dt/p.dur;const t=Math.min(1,p.t),k=t*t*(3-2*t),ox=e.pos.x,oz=e.pos.z,bt=Math.sin(p.t*p.dur*8);
         e.pos.set(p.sx+(p.tx-p.sx)*k,p.sy+(p.ty-p.sy)*k+Math.sin(Math.PI*t)*p.arc+bt*.1*Math.sin(Math.PI*t),p.sz+(p.tz-p.sz)*k);
         if(Math.hypot(e.pos.x-ox,e.pos.z-oz)>1e-4)e.heading=angTo(e.heading,Math.atan2(e.pos.x-ox,e.pos.z-oz),dt*10);
         flap=bt>-.35||t>.85?1:0;tuck=flap?0:.55;
         if(t>=1){e.act=e.next;e.perch=e.nextPerch;e.timer=e.act==='perch'?rr(4,16):rr(4,12);e.hopT=rr(.2,.8)}}
-      else if(e.act==='perch'){const p=e.perch;e.pos.y=p.vis?p.y+.67:p.y+.3;
+      else if(e.act==='perch'){const p=e.perch;if(p.tr&&p.tr.dead)e.timer=0;e.pos.y=lv(p)?p.y+.67:p.y+.3;
         e.turnT=(e.turnT||0)-dt;if(e.turnT<=0){e.heading+=rr(-1.3,1.3);e.turnT=rr(.8,4)}
         if(!isNight()&&weather.amt<.55)e.timer-=dt; // stays roosted through the night and heavy weather
         if(e.timer<=0)birdNext(e)}
@@ -618,7 +664,7 @@ const UPD={
           if(e.hopT<=0){e.hopT=rr(.3,1.2);const a=e.heading+rr(-1.2,1.2),l=rr(.25,.6),tx=e.pos.x+Math.sin(a)*l,tz=e.pos.z+Math.cos(a)*l;if(walk(tx,tz)){e.heading=a;e.hp={sx:e.pos.x,sz:e.pos.z,tx,tz,t:0}}}}
         const F=e.flock;let threat=false;
         if(!player.hidden&&dist(e,player)<(player.stalk?1.6:3.5))threat=true;
-        if(!threat)for(const o of animals){if(!o.alive||o.hidden)continue;const r=o.type==='fox'||o.type==='bear'?4:o.type==='deer'?1.5:0;if(r&&Math.abs(o.pos.x-e.pos.x)<r&&Math.abs(o.pos.z-e.pos.z)<r){threat=true;break}} // deer only spook them up close
+        if(!threat)for(const ty of BIRD_THREAT){const r=ty==='deer'?1.5:4;for(const o of BY[ty]||NONE){if(o.alive&&!o.hidden&&Math.abs(o.pos.x-e.pos.x)<r&&Math.abs(o.pos.z-e.pos.z)<r){threat=true;break}}if(threat)break} // deer only spook them up close
         if(threat)F.alarm=simT; // one bird's alarm flushes the whole group
         e.timer-=dt;if(threat||simT-(F.alarm??-99)<1.2||e.timer<=0||isNight()||weather.amt>.55)flyToPerch(e,e.pos.x,e.pos.z,10)}
     }else{flap=1;tuck=0;e.act=null}
@@ -655,7 +701,8 @@ function migrate(e,inS,sp,dt){
 
 function updateAnimals(dt,s){
   simT+=dt;
-  const dr=live('deer');if(dr.length){herd.x=dr.reduce((a,d)=>a+d.pos.x,0)/dr.length;herd.z=dr.reduce((a,d)=>a+d.pos.z,0)/dr.length}
+  for(const k in BY)BY[k].length=0;for(const a of animals)if(a.alive)(BY[a.type]||(BY[a.type]=[])).push(a);
+  const dr=BY.deer||NONE;if(dr.length){herd.x=dr.reduce((a,d)=>a+d.pos.x,0)/dr.length;herd.z=dr.reduce((a,d)=>a+d.pos.z,0)/dr.length}
   // the herd drifts slowly between grazing grounds
   herd.gt-=dt;if(herd.gt<=0){const t=randTarget(herd.x,herd.z,14);herd.gx=t?t.x:herd.x;herd.gz=t?t.z:herd.z;herd.gt=DAY*rr(.35,.8)}
   let dn=0,dx=0,dz=0;for(const a of animals)if(a.type==='duck'&&a.alive&&a.st==='present'){dn++;dx+=a.pos.x;dz+=a.pos.z}if(dn){duckC.x=dx/dn;duckC.z=dz/dn}
@@ -708,26 +755,18 @@ function newDay(){
 const GR={dry:C('#8d8a55'),sp:C('#74c44a'),su:C('#4e9a36'),au:C('#a69a42')};
 const gcol=new THREE.Color(),tc=new THREE.Color();
 function grassColor(s,o){return o.copy(GR.dry).lerp(GR.sp,sm(0,.45,s)).lerp(GR.su,sm(.55,1.3,s)).lerp(GR.au,sm(1.9,2.5,s)).lerp(GR.dry,sm(2.75,3.1,s))}
+const tca=terrain.instanceColor.array;
 function updateSeasonVisuals(s,quiet){
   const sn=snowAmt(s),lt=litter(s),fo=fol(s);grassColor(s,gcol);
   for(const t of tops){
     if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.lit>0&&lt>0)tc.lerp(t.litC,t.lit*lt*.75)}else tc.copy(t.kind==='path'?PATH:SAND).multiplyScalar(t.jit);
     if(sn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
-    terrain.setColorAt(t.idx,tc);
+    const a=tca,o=t.idx*3;a[o]=tc.r;a[o+1]=tc.g;a[o+2]=tc.b;
   }
   terrain.instanceColor.needsUpdate=true;
-  const m=new THREE.Matrix4();let md=false;
-  for(let k=0;k<leaves.length;k++){const L=leaves[k];const vis=L.dec?L.th<fo:true;
-    if(L.dec){let ls=s+L.jit;if(ls>3.5)ls-=4;const T=LEAF[L.type];tc.copy(T.sp).lerp(T.su,sm(T.spr[0],T.spr[1],ls)).lerp(L.au,sm(1.85,2.4,ls)).multiplyScalar(L.sh)}
-    else{tc.copy(L.base);if(L.top&&sn>L.th*.9)tc.copy(SNOW)}
-    if(vis!==L.vis){L.vis=vis;md=true;if(vis){leafMesh.setMatrixAt(k,leafM(L,m))}else{leafMesh.setMatrixAt(k,Z);if(!quiet&&Math.random()<.5)spawnP('leaf',L.x,L.y,L.z,tc)}}
-    if(vis)leafMesh.setColorAt(k,tc);
-  }
-  if(md)leafMesh.instanceMatrix.needsUpdate=true;leafMesh.instanceColor.needsUpdate=true;
+  WU.uS.value=s;WU.uFol.value=fo;WU.uSnow.value=sn;curFol=fo;
   setWindow(flowers,s);setWindow(shrooms,s);setWindow(berries,s);setWindow(cattails,s);
   bladeMat.color.copy(BL.dry).lerp(BL.sp,sm(0,.45,s)).lerp(BL.su,sm(.55,1.3,s)).lerp(BL.au,sm(1.9,2.5,s)).lerp(BL.dry,sm(2.75,3.1,s));
-  let bd=false;for(let k=0;k<blades.length;k++){const b=blades[k],v=b.reed||sn<=b.t.snowR;if(v!==b.vis){b.vis=v;bd=true;bladeMesh.setMatrixAt(k,v?b.m:Z)}}
-  if(bd)bladeMesh.instanceMatrix.needsUpdate=true;
   fernMat.color.copy(FERN_G).lerp(FERN_B,sm(2.1,2.6,s));fernMesh.visible=s>=.15&&s<3.05;
   mossMat.color.copy(MOSS).lerp(SNOW,sn);
   const ic=iceAmt(s);waterMat.color.copy(WATER).lerp(ICE,ic);waterMat.opacity=.74+.24*ic;
@@ -764,8 +803,8 @@ function updateWeather(dt,s){
   if(paused)return;
   const a=weather.amt;const T=pov?player.pos:controls.target;
   if(a>.05&&weather.kind!=='clear'){const snow=weather.kind==='snow',n=(snow?220:480)*a*dt+Math.random();for(let k=0;k<Math.floor(n);k++)spawnP(snow?'snow':'rain',T.x+rr(-45,45),snow?rr(14,20):rr(18,24),T.z+rr(-45,45),snow?SNOW:RAINC)}
-  if(s>2.3&&s<3&&decLeaves.length){const n=9*dt*Math.min(speed,4)+Math.random();for(let k=0;k<Math.floor(n);k++){const i=pick2(decLeaves),L=leaves[i];if(L.vis){leafMesh.getColorAt(i,tc);spawnP('leaf',L.x,L.y,L.z,tc)}}}
-  if(s>.38&&s<.68&&cherryLeaves.length){const n=6*dt+Math.random();for(let k=0;k<Math.floor(n);k++){const L=leaves[pick2(cherryLeaves)];if(L.vis)spawnP('petal',L.x,L.y,L.z,PETAL)}}
+  if(s>2.3&&s<3&&decLeaves.length){const n=9*dt*Math.min(speed,4)+Math.random();for(let k=0;k<Math.floor(n);k++){const i=pick2(decLeaves),L=leaves[i];if(lv(L)){leafColor(L,s,tc);spawnP('leaf',L.x,L.y,L.z,tc)}}}
+  if(s>.38&&s<.68&&cherryLeaves.length){const n=6*dt+Math.random();for(let k=0;k<Math.floor(n);k++){const L=leaves[pick2(cherryLeaves)];if(lv(L))spawnP('petal',L.x,L.y,L.z,PETAL)}}
 }
 const RAINC=C('#a9c8e8'),PETAL=C('#fbd3e2');
 function updateFireflies(s){
@@ -908,6 +947,7 @@ function frame(){
   if(pov)updatePlayer(rdt);else controls.update();
   renderer.render(scene,camera);
 }
+window.__dbg={renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
