@@ -484,6 +484,13 @@ const MAKE={
     bx(b,3.2,2.4,4.6,o.drake?'#a9a39a':'#9a7a58',0,1.2,0);bx(b,2,1,1.4,'#3a3a3a',0,2,-2.6);
     const h=piv(b,0,2.6,2);e.head=h;bx(h,2,2,2.2,hc,0,1,.4);if(o.drake)bx(h,2.1,.4,2.3,'#f2f2f2',0,-.1,.4);bx(h,1.1,.6,1.6,'#e8b830',0,.6,2.2);bx(h,.3,.5,.5,'#111',-1.05,1.4,.9);bx(h,.3,.5,.5,'#111',1.05,1.4,.9);
     const l=piv(b,-1.6,1.8,0),r=piv(b,1.6,1.8,0);bx(l,3.5,.5,2.6,'#6d5a48',-1.75,0,0);bx(r,3.5,.5,2.6,'#6d5a48',1.75,0,0);e.wings=[l,r];e.root.scale.setScalar(1.25);return e},
+  squirrel(){const e=base(),b=e.body,c='#9a5a30';
+    bx(b,2,2,3.4,c,0,1.4,0);bx(b,1.8,1.8,1.8,c,0,2.4,2);bx(b,.6,.9,.4,c,-.6,3.6,1.8);bx(b,.6,.9,.4,c,.6,3.6,1.8);bx(b,.3,.4,.4,'#111',-.95,2.7,2.5);bx(b,.3,.4,.4,'#111',.95,2.7,2.5);bx(b,1.4,1,1.6,'#e8d8c0',0,1,1);
+    const t=piv(b,0,1.8,-1.6);bx(t,1.8,4.6,1.8,'#a8683a',0,2.2,-.7);e.tail=t;return e},
+  wolf(){const e=base(),b=e.body,g='#7d8288',l='#c9ccd0',d='#3a3d42';legs4(e,1.1,5.2,3,1.2,5,d);
+    bx(b,3.6,3.6,8.5,g,0,6.6,0);bx(b,3,2.6,1.2,l,0,5.8,4.4);bx(b,3.8,1.2,6,'#5f646a',0,8.6,.5);
+    const h=piv(b,0,7.6,4.8);bx(h,3.2,3,3.2,g,0,.4,.6);bx(h,1.8,1.5,2.4,l,0,-.4,3.2);bx(h,.7,.6,.6,'#111',0,0,4.5);bx(h,1,1.8,.6,g,-1.1,2.6,.1);bx(h,1,1.8,.6,g,1.1,2.6,.1);bx(h,.3,.5,.5,'#e8c040',-1.65,.9,1.6);bx(h,.3,.5,.5,'#e8c040',1.65,.9,1.6);
+    const t=piv(b,0,7,-4.2);bx(t,1.6,1.6,5,g,0,0,-2.5);bx(t,1.7,1.7,1,d,0,0,-5.2);t.rotation.x=.35;e.tail=t;e.head=h;return e},
 };
 const GROW={rabbit:[.5,4],fox:[.55,8],deer:[.6,12],bear:[.5,20]};
 const animals=[];
@@ -548,10 +555,10 @@ function birdNext(e){const F=e.flock;
   const lead=F.list.find(b=>b!==e&&b.act==='ground'&&b.alive&&!b.hidden);
   let g=t;if(lead&&Math.random()<.7){const c={x:lead.pos.x+rr(-1.2,1.2),z:lead.pos.z+rr(-1.2,1.2)};if(walk(c.x,c.z))g=c}
   startFly(e,g.x,groundY(g.x,g.z)+.17,g.z,'ground')}
-const BIRD_THREAT=['fox','bear','deer'];
+const BIRD_THREAT=['fox','bear','deer','wolf'];
 const UPD={
   rabbit(e,dt,s){
-    const m=mom(e),f=threatOf(e,['fox'],10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
+    const m=mom(e),f=threatOf(e,['fox','wolf'],10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
     const sense=f&&f.stalk?3.2:8; // a fox creeping low is hard to notice
     let up=0;
     if(f&&(fd<(f.stalk?1.6:3.4)||(e.fear>0&&fd<7))){ // bolt for it, zig-zagging
@@ -592,7 +599,7 @@ const UPD={
     e.tail.rotation.y=Math.sin(simT*(lie?.6:3)+e.phase*.3)*.25;e.tail.rotation.x=e.stalk?.1:-.12;
   },
   deer(e,dt,s){
-    const m=mom(e),b=threatOf(e,['bear'],11),bd=b?dist(e,b):99;
+    const m=mom(e),b=threatOf(e,['bear','wolf'],13),bd=b?dist(e,b):99;
     if(b&&bd<(b.stalk?3:6.5)){herd.alarm=simT;herd.from=b}
     const fleeing=herd.from&&herd.from.alive&&!herd.from.hidden&&simT-herd.alarm<4.5&&dist(e,herd.from)<18;
     let lie=0,head=1.05,bounce=0;
@@ -693,7 +700,73 @@ const UPD={
     const ta=ease(e,'tipA',tip,dt,5);e.body.rotation.x=ta*1.45;e.body.position.y=-ta*.12;
     e.head.rotation.y+=((head?2.4:0)-e.head.rotation.y)*Math.min(1,dt*2);
   },
+  squirrel(e,dt,s){
+    const d=tod(),awake=d>.24&&d<.77&&(weather.kind!=='rain'||weather.amt<.8),th=threatOf(e,['fox','wolf'],6),T=e.tree;let up=0;
+    e.tail.rotation.x=-.25+Math.sin(simT*2.5+e.phase)*.12;
+    if(e.climb){ // on a trunk: up when scared, asleep or resting, down when it's time to forage
+      if(!T||T.dead||T.g<1){e.climb=0;e.body.rotation.x=0;return}
+      if(th||!awake){e.sit=Math.max(e.sit,th?1.5:.3);e.dir=1}
+      const top=T.base+T.th*.8,gy=T.base;
+      if(e.dir>0&&e.pos.y<top){e.pos.y=Math.min(top,e.pos.y+(th?3.8:2.8)*dt);e.body.rotation.x=-1.45;e.mv=1}
+      else if(e.dir<0){e.pos.y-=3.6*dt;e.body.rotation.x=1.45;e.mv=1;if(e.pos.y<=gy){e.climb=0;e.body.rotation.x=0;e.pos.y=gy;e.idle=rr(.1,.6)}}
+      else{e.mv=0;e.body.rotation.x=0;if(awake&&!th){e.sit-=dt;if(e.sit<=0)e.dir=-1}}
+      const o=e.dir>0&&e.pos.y>=top?.95:.55;e.pos.x=T.x+Math.sin(e.side)*o;e.pos.z=T.z+Math.cos(e.side)*o;e.heading=e.side+(e.mv?Math.PI:0);
+      e.phase+=dt*8*e.mv;e.body.position.y=0;return}
+    const go=(t,sp)=>{const r=stepTo(e,t.x,t.z,sp,dt);e.phase+=dt*e.mv*5;return r};
+    if(th||!awake||(e.task==='climb')){ // dash for the nearest tree
+      if(!e.tree||e.tree.dead||Math.hypot(e.tree.x-e.pos.x,e.tree.z-e.pos.z)>12)e.tree=nearTree(e.pos.x,e.pos.z,12);
+      const t=e.tree;if(t){const a=Math.atan2(e.pos.x-t.x,e.pos.z-t.z),gx=t.x+Math.sin(a)*.55,gz=t.z+Math.cos(a)*.55;
+        if(Math.hypot(gx-e.pos.x,gz-e.pos.z)<.4||go({x:gx,z:gz},th?3.4:2.2)&&Math.hypot(gx-e.pos.x,gz-e.pos.z)<.9){e.climb=1;e.dir=1;e.side=a;e.sit=th?rr(2,4):rr(1.2,4);e.task=null}}
+      else if(th)flee(e,th,3,dt);else e.mv=0}
+    else if(e.dig>0){e.dig-=dt;e.mv=0;up=0;if(e.dig<=0){
+        if(e.task==='bury'){caches.push({x:e.pos.x,z:e.pos.z,yr:Math.floor(simDays/(4*DPS))});e.nut=false;if(caches.length>160)caches.shift()}
+        else if(e.task==='fetch')e.nut=true;
+        else if(e.task==='dig'&&e.cache){const k=caches.indexOf(e.cache);if(k>=0)caches.splice(k,1);e.cache=null}
+        e.task=null}}
+    else if(e.task){const t=e.goal;e.tt=(e.tt||0)+dt;if(go(t,3.2)&&Math.hypot(t.x-e.pos.x,t.z-e.pos.z)<1.4){e.dig=e.task==='fetch'?rr(.6,1.2):e.task==='hop'?rr(.3,1.2):rr(1,2);e.tt=0}else if(e.tt>5){e.task=null;e.tt=0}}
+    else{ // decide what to do next
+      e.idle-=dt;e.mv=0;up=Math.sin(simT*1.3+e.phase)>.3?1:0;
+      if(e.idle<=0){e.idle=rr(.3,1.2);const r=Math.random(),autumn=s>1.9&&s<2.95,lean=s>=2.95||s<.2;
+        if(r<.04){e.task='climb'}
+        else if(autumn&&e.nut){const t=randTarget(e.pos.x,e.pos.z,4);if(t){e.task='bury';e.goal=t}}
+        else if(autumn&&r<.75){const o=nearTree(e.pos.x,e.pos.z,9,'oak')||nearTree(e.pos.x,e.pos.z,7,'maple');if(o){const g=randTarget(o.x,o.z,2.2);if(g){e.task='fetch';e.goal=g}}}
+        else if(lean&&caches.length&&r<.7){let best=null,bd=144;for(const c of caches){const q=(c.x-e.pos.x)**2+(c.z-e.pos.z)**2;if(q<bd){bd=q;best=c}}if(best){e.task='dig';e.cache=best;e.goal=best}}
+        else{const t=randTarget(e.pos.x,e.pos.z,4);if(t){e.task='hop';e.goal=t}}}}
+        e.body.rotation.x=e.dig>0?.5+Math.sin(simT*14)*.15:e.mv?0:-up*.5;e.body.position.y=e.mv?Math.abs(Math.sin(e.phase))*.14:0;
+  },
+  wolf(e,dt,s){
+    const P=pack,k=P.members.indexOf(e),lead=P.members.find(w=>w.alive)||e;let lie=0,head=0,sp=0;e.stalk=false;
+    const pd=player.hidden||player.calm?99:dist(e,player);
+    if(P.leave){const t=P.exit;stepTo(e,t.x,t.z,2.4,dt);if(Math.hypot(t.x-e.pos.x,t.z-e.pos.z)<2||e.mv===0&&Math.random()<dt*.5){kill(e)}}
+    else if(pd<7){flee(e,player,3.4,dt);head=-.1} // wary of people
+    else if(P.carcass){const c=P.carcass,a=k*1.6,gx=c.x+Math.sin(a)*1.1,gz=c.z+Math.cos(a)*1.1;if(stepTo(e,gx,gz,2.2,dt)||Math.hypot(gx-e.pos.x,gz-e.pos.z)<.5){e.mv=0;lookAt(e,{pos:{x:c.x,z:c.z}},dt);head=.75;lie=Math.sin(simT*.2+k)>.6?1:0}}
+    else if(P.prey){const q=P.prey,d=dist(e,q);
+      if(P.chase){const fx=Math.cos(q.heading)*(k-1.5)*1.4,fz=-Math.sin(q.heading)*(k-1.5)*1.4; // spread out and flank
+        sp=P.chaseT>8?3.7:4.6;stepTo(e,q.pos.x+(d>3?fx:0),q.pos.z+(d>3?fz:0),sp,dt);head=-.05;
+        if(d<.9){kill(q);P.carcass={x:q.pos.x,z:q.pos.z,t:DAY*rr(.4,.7)};P.hunger=0;P.prey=null;P.chase=false;log(q.grow<1?'The wolves bring down a fawn':'The wolf pack brings down a deer')}}
+      else{e.stalk=true;head=.3;stepTo(e,q.pos.x,q.pos.z,1.5,dt);if(d<7||q.mv>3){P.chase=true;P.chaseT=0}}}
+    else if(isNight()||twilight()){ // roam in single file behind the lead wolf
+      if(e===lead)wander(e,dt,14,2,.5,3,P.home.x,P.home.z);else{const m=P.members[k-1];if(m&&m.alive)follow(e,m,dt,2);else wander(e,dt,6,2,1,4)}}
+    else{const a=k*2.1,gx=P.home.x+Math.sin(a)*1.3,gz=P.home.z+Math.cos(a)*1.3; // rest up through the day, curled together
+      if(Math.hypot(gx-e.pos.x,gz-e.pos.z)>.6&&!e.bed){if(stepTo(e,gx,gz,1.8,dt)&&Math.hypot(gx-e.pos.x,gz-e.pos.z)<1.2)e.bed=1}else{e.mv=0;e.bed=1;lie=1}}
+    if(lie===0)e.bed=0;
+    e.phase+=dt*e.mv*(e.mv>3?2.6:3.4);swingLegs(e,e.mv>3?.8:.5);pose(e,dt,lie,e.stalk?-.1:0);
+    e.head.rotation.x+=(head-e.head.rotation.x)*Math.min(1,dt*4);e.tail.rotation.x=e.stalk||e.mv>3?.1:.35+Math.sin(simT*2+e.phase)*.05;
+  },
 };
+function nearTree(x,z,r,type){let best=null,bd=r*r;for(const t of trees){if(t.dead||t.g<1||type&&t.type!==type)continue;const q=(t.x-x)**2+(t.z-z)**2;if(q<bd){bd=q;best=t}}return best}
+const caches=[]; // acorns buried by squirrels; forgotten ones can sprout
+// the wolf pack moves as one: shared hunger, prey and resting place
+const pack={members:[],home:{x:0,z:0},exit:{x:0,z:0},prey:null,chase:false,chaseT:0,hunger:0,carcass:null,leave:false};
+function packTick(dt){
+  const P=pack;if(!P.members.length)return;P.members=P.members.filter(w=>w.alive);if(!P.members.length){P.leave=false;P.prey=null;P.carcass=null;return}
+  P.hunger+=dt/DAY;if(P.carcass){P.carcass.t-=dt;if(P.carcass.t<=0)P.carcass=null}
+  if(P.prey&&(!P.prey.alive||P.prey.hidden))P.prey=null;
+  if(P.chase){P.chaseT+=dt;if(!P.prey||P.chaseT>15){P.prey=null;P.chase=false;P.hunger-=.25}} // the deer got away
+  if(!P.prey&&!P.carcass&&!P.leave&&(P.hunger>.7&&(isNight()||twilight())||P.hunger>2)){
+    const c=P.members[0];let best=null,bd=1e9;for(const d of BY.deer||NONE){if(!d.alive)continue;const q=dist(c,d)*(d.grow<1?.6:1);if(q<bd&&q<40){bd=q;best=d}}
+    if(best){P.prey=best;P.chase=false}}
+}
 function migrate(e,inS,sp,dt){
   if(inS&&(e.st==='away'||e.st==='leaving')){if(e.st==='away'){e.pos.copy(e.far);setHidden(e,false)}e.st='returning';if(e.type==='duck'){const[i,j]=pick2(waterCells);e.home={x:cx(i),z:cx(j)}}}
   if(!inS&&(e.st==='present'||e.st==='returning'))e.st='leaving';
@@ -703,6 +776,7 @@ function migrate(e,inS,sp,dt){
 function updateAnimals(dt,s){
   simT+=dt;
   for(const k in BY)BY[k].length=0;for(const a of animals)if(a.alive)(BY[a.type]||(BY[a.type]=[])).push(a);
+  packTick(dt);
   const dr=BY.deer||NONE;if(dr.length){herd.x=dr.reduce((a,d)=>a+d.pos.x,0)/dr.length;herd.z=dr.reduce((a,d)=>a+d.pos.z,0)/dr.length}
   // the herd drifts slowly between grazing grounds
   herd.gt-=dt;if(herd.gt<=0){const t=randTarget(herd.x,herd.z,14);herd.gx=t?t.x:herd.x;herd.gz=t?t.z:herd.z;herd.gt=DAY*rr(.35,.8)}
@@ -711,7 +785,7 @@ function updateAnimals(dt,s){
     if(!e.alive)continue;
     UPD[e.type](e,dt,s);if(!e.alive)continue;
     if(e.grow<1){e.grow=Math.min(1,e.grow+dt/(GROW[e.type][1]*DAY));e.root.scale.setScalar(GROW[e.type][0]+(1-GROW[e.type][0])*e.grow)}
-    if(e.type!=='bird'&&e.type!=='duck'){const gy=groundY(e.pos.x,e.pos.z);e.pos.y+=(gy-e.pos.y)*Math.min(1,dt*12)}
+    if(e.type!=='bird'&&e.type!=='duck'&&!e.climb){const gy=groundY(e.pos.x,e.pos.z);e.pos.y+=(gy-e.pos.y)*Math.min(1,dt*12)}
     e.root.position.copy(e.pos);e.root.rotation.y=e.heading;
   }
   for(let k=animals.length-1;k>=0;k--)if(!animals[k].alive)animals.splice(k,1);
@@ -722,6 +796,7 @@ for(let k=0;k<26;k++){const[x,z]=randomWalkable();spawn('rabbit',x,z)}
 for(let k=0;k<5;k++){const[x,z]=randomWalkable();spawn('fox',x,z)}
 {const[hx,hz]=randomWalkable();for(let k=0;k<11;k++){const t=randTarget(hx,hz,5)||{x:hx,z:hz};spawn('deer',t.x,t.z,{buck:k<3})}}
 {const[x,z]=randomWalkable();spawn('bear',x,z,{female:true})}{const[x,z]=randomWalkable();spawn('bear',x,z)}
+for(let k=0;k<9;k++){const t=pick(trees),a=R(0,6.28),x=t.x+Math.sin(a)*1.5,z=t.z+Math.cos(a)*1.5;if(walk(x,z))spawn('squirrel',x,z)}
 const flocks=[];
 const BIRDC=[['#c62828','#8e1c1c'],['#2f6fd0','#20488a'],['#7a5230','#d9622b'],['#f2d23a','#3a3a3a']];
 for(let f=0;f<3;f++){const flock={c:new THREE.Vector3(R(-24,24),0,R(-24,24)),c2:new THREE.Vector3(),t:0};flock.c2.copy(flock.c);
@@ -749,6 +824,12 @@ function newDay(){
   if(s>.3&&s<.9)for(const f of fx)if(f.grow>=1&&f.bred!==yr&&f.hunger<2.5&&live('fox').length<9&&Math.random()<.2){f.bred=yr;spawn('fox',f.pos.x,f.pos.z,{baby:1,mother:f});log('A fox kit tumbles out of the den')}
   if(s>.45&&s<.95)for(const d of dr)if(!d.buck&&d.grow>=1&&d.bred!==yr&&live('deer').length<17&&Math.random()<.25){d.bred=yr;spawn('deer',d.pos.x,d.pos.z,{baby:1,mother:d,buck:Math.random()<.5});log('A spotted fawn is born')}
   if(rab.length<3&&s<2.8){for(let k2=0;k2<3;k2++){const[x,z]=randomWalkable(true);spawn('rabbit',x,z)}log('Rabbits move in from the meadow')}
+  if(dr.length<4&&s<2.8){for(let k2=0;k2<3;k2++){const[x,z]=randomWalkable(true);spawn('deer',x,z,{buck:k2===0})}log('A few deer wander in from the next valley')}
+  const sq=live('squirrel');if(sq.length<5&&s<2.5){for(let k2=0;k2<2;k2++){const[x,z]=randomWalkable(true);spawn('squirrel',x,z)}log('Squirrels move into the hollow')}
+  if(!pack.members.length&&dr.length>=13&&simDays>DPS&&Math.random()<.3){const[x,z]=randomWalkable(true),[hx,hz]=randomWalkable();pack.home={x:hx,z:hz};pack.hunger=.5;pack.leave=false;
+    for(let k2=0;k2<RI(3,4);k2++){const t=randTarget(x,z,2)||{x,z};pack.members.push(spawn('wolf',t.x,t.z))}log('A wolf pack pads in from beyond the ridge')}
+  if(pack.members.length&&!pack.leave&&(dr.length<=5||pack.hunger>5)){pack.leave=true;pack.prey=null;const[x,z]=randomWalkable(true);pack.exit={x,z};log(dr.length<=5?'With the deer thinned out, the wolves move on':'The hungry wolves move on')}
+  if(s<.1)for(let k2=caches.length-1;k2>=0;k2--)if(caches[k2].yr<Math.floor(simDays/(4*DPS))-1)caches.splice(k2,1);
   if((fx.length===0&&rab.length>10)||(fx.length<3&&rab.length>30&&Math.random()<.25)){const[x,z]=randomWalkable(true);spawn('fox',x,z);log('A fox arrives from beyond the ridge')}
 }
 
@@ -816,6 +897,65 @@ function updateFireflies(s){
     dummy.position.set(f.x+Math.sin(t*.4*f.sp+f.ph)*1.5,gy+.8+Math.sin(t*.7+f.ph)*.5,f.z+Math.cos(t*.3*f.sp+f.ph)*1.5);dummy.rotation.set(0,0,0);dummy.scale.setScalar(b>.3?1:0);dummy.updateMatrix();ffMesh.setMatrixAt(k,dummy.matrix)});
   ffMesh.instanceMatrix.needsUpdate=true;
 }
+
+// ---------- small life: butterflies, dragonflies, jumping fish, ripples ----------
+const BUGN=44,DRAGN=14,bugMesh=new THREE.InstancedMesh(box1,lamW(),BUGN*2+DRAGN*3);bugMesh.frustumCulled=false;bugMesh.castShadow=false;bugMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(bugMesh);
+const BUGC=['#f0a030','#f6f2e0','#f2d23a','#5a8ae0','#f0a030'].map(C),bugs=[];
+for(let k=0;k<BUGN+DRAGN;k++){const dr=k>=BUGN,b={dr,x:0,y:-9,z:0,tx:0,ty:0,tz:0,h:0,ph:Math.random()*6.28,land:0,on:false,th:Math.random()};bugs.push(b);
+  const c=dr?C(pick2(['#2fa0b0','#c03030','#3050c0'])):pick2(BUGC);if(dr){bugMesh.setColorAt(BUGN*2+(k-BUGN)*3,c);bugMesh.setColorAt(BUGN*2+(k-BUGN)*3+1,C('#dbeff2'));bugMesh.setColorAt(BUGN*2+(k-BUGN)*3+2,C('#dbeff2'))}else{bugMesh.setColorAt(k*2,c);bugMesh.setColorAt(k*2+1,c)}}
+for(let k=0;k<bugMesh.count;k++)bugMesh.setMatrixAt(k,Z);
+function flowerSpot(x,z,r){for(let a=0;a<8;a++){const f=pick2(flowers.items);if(f.vis&&!f.gone&&(r>90||Math.hypot(f.x-x,f.z-z)<r))return{x:f.x,y:f.y+flowers.ss[1]+flowers.hs[1]+.03,z:f.z,fl:1}}return null}
+function wing(idx,b,side,a,len,wid){const ox=side*len*.5*Math.cos(a),oy=len*.5*Math.sin(a),c=Math.cos(b.h),sn=Math.sin(b.h);
+  dummy.position.set(b.x+ox*c,b.y+oy,b.z-ox*sn);dummy.rotation.set(0,b.h,side*a,'YXZ');dummy.scale.set(len,.015,wid);dummy.updateMatrix();bugMesh.setMatrixAt(idx,dummy.matrix)}
+let bugVis=false;
+function updateBugs(dt,s){
+  const wet=weather.kind==='rain'?weather.amt:weather.amt*.5,day=daylight*(1-wet)*(wind<1.85?1:.4);
+  const bA=day*sm(.28,.45,s)*(1-sm(2.05,2.3,s)),dA=day*sm(.7,.9,s)*(1-sm(1.9,2.1,s));
+  if(bA<.02&&dA<.02){if(bugVis){for(let k=0;k<bugMesh.count;k++)bugMesh.setMatrixAt(k,Z);bugMesh.instanceMatrix.needsUpdate=true;bugVis=false;for(const b of bugs)b.on=false}return}
+  bugVis=true;const T=tReal;
+  for(let k=0;k<bugs.length;k++){const b=bugs[k],want=b.th<(b.dr?dA:bA);
+    if(!want){if(b.on){b.on=false;if(b.dr)for(let q=0;q<3;q++)bugMesh.setMatrixAt(BUGN*2+(k-BUGN)*3+q,Z);else{bugMesh.setMatrixAt(k*2,Z);bugMesh.setMatrixAt(k*2+1,Z)}}continue}
+    if(!b.on){b.on=true;if(b.dr){const[i,j]=pick2(waterCells);b.x=cx(i);b.z=cx(j);b.y=W+.6}else{const f=flowerSpot(0,0,99)||{x:0,y:4,z:0};b.x=f.x;b.y=f.y+1;b.z=f.z}b.tx=b.x;b.ty=b.y;b.tz=b.z;b.land=0}
+    if(b.dr){ // dragonflies: hover, then dart to a new spot over the water
+      if(b.land>0){b.land-=dt;b.x+=Math.sin(T*9+b.ph)*.004;b.y+=Math.sin(T*7+b.ph)*.003}
+      else{const dx=b.tx-b.x,dy=b.ty-b.y,dz=b.tz-b.z,d=Math.hypot(dx,dy,dz);if(d<.1){b.land=rr(.4,2.6);const[i,j]=pick2(waterCells);const nx=b.x+rr(-4,4),nz=b.z+rr(-4,4);if(isWater(nx,nz)){b.tx=nx;b.tz=nz}else{b.tx=cx(i)+rr(-.4,.4);b.tz=cx(j)+rr(-.4,.4)}b.ty=W+rr(.25,1.3)}
+        else{const m=Math.min(1,7*dt/d);b.x+=dx*m;b.y+=dy*m;b.z+=dz*m;b.h=Math.atan2(dx,dz)}}
+      const o=BUGN*2+(k-BUGN)*3;dummy.position.set(b.x,b.y,b.z);dummy.rotation.set(0,b.h,0);dummy.scale.set(.05,.05,.5);dummy.updateMatrix();bugMesh.setMatrixAt(o,dummy.matrix);
+      const fa=Math.sin(T*70+b.ph)*.25;wing(o+1,b,1,fa,.5,.1);wing(o+2,b,-1,fa,.5,.1);continue}
+    // butterflies: erratic fluttering flight from flower to flower, wings slowly opening and closing when they land
+    let a;if(b.land>0){b.land-=dt;a=.15+.75*(.5+.5*Math.sin(T*2.2+b.ph));if(b.land<=0){const f=Math.random()<.65?flowerSpot(b.x,b.z,9):null,g=f||{x:b.x+rr(-4,4),y:0,z:b.z+rr(-4,4)};if(!f)g.y=groundY(g.x,g.z)+rr(.7,2.6);b.tx=g.x;b.ty=g.y;b.tz=g.z;b.fl=f?1:0}}
+    else{const dx=b.tx-b.x,dy=b.ty-b.y,dz=b.tz-b.z,d=Math.hypot(dx,dy,dz);a=Math.sin(T*17+b.ph)*.85+.2;
+      if(d<.12){b.land=b.fl?rr(1.5,5):.01}
+      else{const m=Math.min(1,1.3*dt/d),w=Math.sin(T*3.1+b.ph)*.9;b.x+=dx*m+Math.cos(b.h)*w*dt;b.z+=dz*m-Math.sin(b.h)*w*dt;b.y+=dy*m+Math.sin(T*9+b.ph)*.9*dt;b.h=Math.atan2(dx,dz)}}
+    wing(k*2,b,1,a,.17,.15);wing(k*2+1,b,-1,a,.17,.15)}
+  bugMesh.instanceMatrix.needsUpdate=true}
+// ripples on the pond: expanding square rings, shared by fish, rain, stones and splashes
+const RIPN=48,ripMat=new THREE.MeshBasicMaterial({color:'#ffffff',transparent:true,blending:THREE.AdditiveBlending,depthWrite:false});
+const ripGeo=new THREE.RingGeometry(.86,1,4,1);ripGeo.rotateZ(Math.PI/4);ripGeo.rotateX(-Math.PI/2);
+const ripMesh=new THREE.InstancedMesh(ripGeo,ripMat,RIPN);ripMesh.frustumCulled=false;ripMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(ripMesh);
+const rips=[];let ripI=0,ripLive=0;for(let k=0;k<RIPN;k++){rips.push({on:false});ripMesh.setMatrixAt(k,Z);ripMesh.setColorAt(k,WHITE)}
+function ripple(x,z,max=1.2,life=1.4){if(iceAmt(season())>.4)return;const r=rips[ripI];ripI=(ripI+1)%RIPN;if(!r.on)ripLive++;Object.assign(r,{on:true,x,z,max,life,t:0})}
+function updateRipples(dt){
+  if(!ripLive)return;
+  for(let k=0;k<RIPN;k++){const r=rips[k];if(!r.on)continue;r.t+=dt;const f=r.t/r.life;
+    if(f>=1){r.on=false;ripLive--;ripMesh.setMatrixAt(k,Z);continue}
+    dummy.position.set(r.x,W-.13,r.z);dummy.rotation.set(0,0,0);dummy.scale.setScalar(.08+r.max*Math.sqrt(f));dummy.updateMatrix();ripMesh.setMatrixAt(k,dummy.matrix);ripMesh.setColorAt(k,tc.setScalar((1-f)*.45*(.35+.65*daylight)))}
+  ripMesh.instanceMatrix.needsUpdate=true;ripMesh.instanceColor.needsUpdate=true}
+// fish leaping for insects at dawn and dusk
+const FISHN=3,fishMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#9aa49a'}),FISHN);fishMesh.frustumCulled=false;scene.add(fishMesh);
+const fish=[];for(let k=0;k<FISHN;k++){fish.push({on:false});fishMesh.setMatrixAt(k,Z)}
+function updateFish(dt,s){
+  const d=tod(),ice=iceAmt(s)>.2,rate=ice||s>2.85?0:(.05+.25*(Math.abs(d-.27)<.06||Math.abs(d-.76)<.06?1:0))*(1-.5*weather.amt);
+  if(rate&&Math.random()<rate*dt){const f=fish.find(q=>!q.on);if(f){for(let a=0;a<6;a++){const[i,j]=pick2(waterCells),x=cx(i)+rr(-.4,.4),z=cx(j)+rr(-.4,.4),h=rr(0,6.28),L=rr(.8,1.5),x1=x+Math.sin(h)*L,z1=z+Math.cos(h)*L;
+    if(isWater(x1,z1)&&H[i][j]<W-.8){Object.assign(f,{on:true,t:0,dur:rr(.45,.65),x,z,x1,z1,h,hi:rr(.45,.85)});ripple(x,z,.9,1.1);sfx('plip',x,z,16);break}}}}
+  let any=false;for(let k=0;k<FISHN;k++){const f=fish[k];if(!f.on)continue;any=true;f.t+=dt/f.dur;
+    if(f.t>=1){f.on=false;fishMesh.setMatrixAt(k,Z);ripple(f.x1,f.z1,1.3,1.5);sfx('splash',f.x1,f.z1,16);continue}
+    const t=f.t;dummy.position.set(f.x+(f.x1-f.x)*t,W-.2+4*f.hi*t*(1-t),f.z+(f.z1-f.z)*t);dummy.rotation.set(-(1-2*t)*1.1,f.h,0,'YXZ');dummy.scale.set(.12,.16,.5);dummy.updateMatrix();fishMesh.setMatrixAt(k,dummy.matrix)}
+  if(any||fishMesh.userData.was)fishMesh.instanceMatrix.needsUpdate=true;fishMesh.userData.was=any}
+function updateSmallLife(dt,s){
+  if(paused)return;updateBugs(dt,s);updateFish(dt,s);
+  if(weather.kind==='rain'&&weather.amt>.15&&waterCells.length){const n=weather.amt*14*dt*QMUL[quality]+Math.random();for(let k=0;k<Math.floor(n);k++){const[i,j]=pick2(waterCells);ripple(cx(i)+rr(-.5,.5),cx(j)+rr(-.5,.5),.35,.7)}}
+  updateRipples(dt)}
 
 // ---------- atmosphere: light shafts, mist, heat shimmer ----------
 const QMUL=[.45,.75,1];
@@ -954,7 +1094,7 @@ $('snd').addEventListener('click',e=>{setSound(!SND.on);e.currentTarget.blur()})
 document.addEventListener('visibilitychange',()=>{if(SND.ctx&&SND.on){document.hidden?SND.ctx.suspend():SND.ctx.resume()}});
 
 // ---------- HUD ----------
-const POP=[['rabbit','Rabbits','#b08b62'],['fox','Red foxes','#d8682a'],['deer','White-tailed deer','#8b5a2b'],['bear','Black bears','#4a3020'],['bird','Songbirds','#c62828'],['duck','Mallards','#2f7a3a']];
+const POP=[['rabbit','Rabbits','#b08b62'],['fox','Red foxes','#d8682a'],['deer','White-tailed deer','#8b5a2b'],['bear','Black bears','#4a3020'],['bird','Songbirds','#c62828'],['duck','Mallards','#2f7a3a'],['squirrel','Red squirrels','#9a5a30'],['wolf','Grey wolves','#7d8288']];
 $('popl').innerHTML=POP.map(([k,n,c])=>`<li><i class="sw" style="background:${c}"></i><span>${n}</span><b class="n" id="n-${k}">0</b><span class="note" id="t-${k}"></span></li>`).join('');
 const ACC=['#8fd35a','#f2c94c','#e0662a','#bfe3ff'];
 function updHud(s){
@@ -976,6 +1116,8 @@ function updHud(s){
   const away=t=>L(t).filter(a=>a.hidden).length;
   $('t-bird').textContent=away('bird')===L('bird').length?'Wintering down south':L('bird').some(b=>b.st==='leaving')?'Flying south':L('bird').some(b=>b.st==='returning')?'Returning north':isNight()?'Roosting in the treetops':L('bird').filter(b=>b.act==='ground').length>L('bird').length/3?'Foraging on the ground':'Flitting between the trees';
   $('t-duck').textContent=away('duck')===L('duck').length?'Wintering down south':L('duck').some(b=>b.st!=='present')?'On the wing':isNight()?'Asleep on the water':'Dabbling on the pond';
+  $('t-squirrel').textContent=s>1.9&&s<2.95?`Burying acorns · ${caches.length} caches`:s>=2.95||s<.2?(caches.length?`Digging up ${caches.length} hidden caches`:'Huddled in their dreys'):'Chasing through the branches';
+  $('t-wolf').textContent=!L('wolf').length?'None in the hollow':pack.leave?'Moving on':pack.carcass?'Feeding on a kill':pack.chase?'Chasing deer':pack.prey?'Stalking the herd':isNight()?'Roaming in single file':'Resting together';
   document.querySelectorAll('.strip button').forEach((b,i)=>b.setAttribute('aria-current',i===si?'true':'false'));
 }
 
@@ -1085,7 +1227,7 @@ function frame(){
   // seasonal recolouring only when the season has actually moved (nothing at all while paused)
   visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.003)){updateSeasonVisuals(s,jumped);visS=s;visT=.12;jumped=false}
   if((++shF%(4-quality))===0||jumped)renderer.shadowMap.needsUpdate=true;
-  updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);govern(rdt);
+  updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);updateSmallLife(rdt,s);govern(rdt);
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
   soundTick(rdt,s);
@@ -1093,7 +1235,7 @@ function frame(){
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={SND,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
