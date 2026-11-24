@@ -559,12 +559,14 @@ function birdNext(e){const F=e.flock;
 const BIRD_THREAT=['fox','bear','deer','wolf'];
 const UPD={
   rabbit(e,dt,s){
+    if(e.inHole>0){e.inHole-=dt;e.mv=0;if(e.inHole<=0){if(threatOf(e,['fox','wolf'],6))e.inHole=rr(2,4);else{setHidden(e,false);e.fear=0}}return}
     const m=mom(e),f=threatOf(e,['fox','wolf'],10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
     const sense=f&&f.stalk?3.2:8; // a fox creeping low is hard to notice
     let up=0;
     if(f&&(fd<(f.stalk?1.6:3.4)||(e.fear>0&&fd<7))){ // bolt for it, zig-zagging
-      if(e.fear<=0)e.react=rr(.1,.45);e.fear=3;e.react-=dt;
-      if(e.react<=0){e.zz=(e.zz||0)+dt;const a=Math.atan2(e.pos.x-f.pos.x,e.pos.z-f.pos.z)+Math.sin(e.zz*5.5)*.75;e.target=null;stepTo(e,e.pos.x+Math.sin(a)*3,e.pos.z+Math.cos(a)*3,3.3,dt)}else{e.mv=0;up=1}
+      if(e.fear<=0){e.react=rr(.1,.45);e.hole=boltHole(e,f)}e.fear=3;e.react-=dt;
+      if(e.react<=0&&e.hole){const hd=Math.hypot(e.hole.x-e.pos.x,e.hole.z-e.pos.z);if(hd<.45){setHidden(e,true);e.inHole=rr(5,12);e.mv=0;e.hole=null}else if(stepTo(e,e.hole.x,e.hole.z,3.4,dt))e.hole=null}
+      else if(e.react<=0){e.zz=(e.zz||0)+dt;const a=Math.atan2(e.pos.x-f.pos.x,e.pos.z-f.pos.z)+Math.sin(e.zz*5.5)*.75;e.target=null;stepTo(e,e.pos.x+Math.sin(a)*3,e.pos.z+Math.cos(a)*3,3.3,dt)}else{e.mv=0;up=1}
     }else if(f&&fd<sense){e.mv=0;e.target=null;up=1;lookAt(e,f,dt)} // freeze and watch
     else if(m){follow(e,m,dt,1.5)}
     else{ // most active at dawn, dusk and through the night; sits tight at midday
@@ -644,10 +646,10 @@ const UPD={
         e.forage=0;e.gt=0}
       if(e.goal){
         if(e.forage>0){e.mv=0;e.forage-=dt;head=.55;if(e.goal.kind==='berries'&&Math.random()<dt*.5)eatBerry(e.goal.x,e.goal.z,1.8);e.head.rotation.y=Math.sin(simT*1.6+e.phase)*.35;
-          if(e.standT>0){e.standT-=dt;stand=1;head=-.3}else if(Math.random()<dt*.03)e.standT=2.5; // rears up to sniff the air
+          if(e.standT>0){e.standT-=dt;stand=1;head=-.3}else if(Math.random()<dt*.03){e.standT=2.5;const T=nearTree(e.pos.x,e.pos.z,1.9);if(T&&Math.random()<.6){e.heading=Math.atan2(T.x-e.pos.x,T.z-e.pos.z);treeMark(T,e.pos.x,e.pos.z,'claw')}} // rears up to sniff the air, or to rake a trunk
           if(e.forage<=0)e.goal=null}
         else{e.gt+=dt;const arrived=stepTo(e,e.goal.x,e.goal.z,s>2?1.35:1.05,dt),near=Math.hypot(e.goal.x-e.pos.x,e.goal.z-e.pos.z)<2.2;
-          if((arrived&&near)||e.gt>40)e.forage=e.goal.kind==='berries'?rr(10,22):rr(5,12);else if(arrived)e.goal=null}}}
+          if((arrived&&near)||e.gt>40){e.forage=e.goal.kind==='berries'?rr(10,22):rr(5,12);const T=Math.random()<.4&&nearTree(e.pos.x,e.pos.z,2.6);if(T){e.standT=2.5;e.heading=Math.atan2(T.x-e.pos.x,T.z-e.pos.z);treeMark(T,e.pos.x,e.pos.z,'claw')}}else if(arrived)e.goal=null}}}
     e.phase+=dt*e.mv*2.6;swingLegs(e,.45);pose(e,dt,lie);e.body.rotation.z=e.mv>0?Math.sin(e.phase)*.04:0;
     const sA=ease(e,'standA',stand,dt,2.5);e.body.rotation.x=-sA*1.0;e.body.position.y+=sA*.55;
     e.head.rotation.x+=(head-e.head.rotation.x)*Math.min(1,dt*3);if(!(e.forage>0))e.head.rotation.y*=.9;
@@ -1339,7 +1341,7 @@ function ecoDaily(s,kind){
   const yr=Math.floor(simDays/(4*DPS));
   if(!fireList.length&&drought>=7&&s>1.1&&s<2.6&&yr>=FIRE.yr+2&&Math.random()<.22)lightning(true);
   else if(kind==='rain'&&s>.6&&s<2.3&&Math.random()<.2)lightning(false); // a summer thunderstorm
-  lifeDaily(s);regrow(s);seedlings(s);wearDaily(s);
+  lifeDaily(s);regrow(s);seedlings(s);wearDaily(s);signsDaily(s);
   if(s<.2&&berryYr!==yr){berryYr=yr;for(const f of berries.items)if(!f.bush||(f.bush.st==='alive'&&f.bush.g>=.8))f.gone=false}}
 function ecoTick(dt){fireTick(dt,season());if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){const now=performance.now();if(now-topUpT>250){topUpT=now;terrain.instanceColor.needsUpdate=true;topDirty=false}}printsTick(dt)}
 // ---------- ground signs: worn game trails, grazed turf, berries eaten, footprints in snow ----------
@@ -1369,6 +1371,50 @@ function printsTick(dt){
   if(prLive&&(prChk+=dt)>1){prChk=0;const fall=weather.kind==='snow'?weather.amt:0,life=2.5/(1+fall*6);
     for(let k=0;k<PRN;k++)if(prT[k]>=0&&(simDays-prT[k]>life||visSn<=topOf[prC[k]].snowR)){prT[k]=-1;prLive--;prMesh.setMatrixAt(k,Z);prDirty=true}}
   if(prDirty){prMesh.instanceMatrix.needsUpdate=true;prDirty=false}}
+
+// ---------- animal signs: rabbit warrens that grow with the colony, fox dens, bear claw marks, buck rubs ----------
+const HOLEN=64,holeMesh=new THREE.InstancedMesh(box1,lamW(),HOLEN*2);holeMesh.frustumCulled=false;holeMesh.receiveShadow=true;scene.add(holeMesh);
+for(let k=0;k<HOLEN*2;k++){holeMesh.setMatrixAt(k,Z);holeMesh.setColorAt(k,tc.set(k&1?'#6b4a2c':'#17110b'))}
+const holeSlots=new Array(HOLEN).fill(null),warrens=[],dens=[];
+function holeSpot(x,z,r,sep){for(let a=0;a<24;a++){const q=a?rr(.5,r):0,an=rr(0,6.28),hx=x+Math.cos(an)*q,hz=z+Math.sin(an)*q,c=cellOf(hx,hz),t=topOf[c];
+  if(!t||t.kind==='sand'||blocked[c]||!walk(hx,hz)||holeSlots.some(h=>h&&Math.hypot(h.x-hx,h.z-hz)<sep))continue;return{x:cx(Math.floor(hx+HALF))+rr(-.2,.2),z:cx(Math.floor(hz+HALF))+rr(-.2,.2)}}return null}
+function addHole(p,sc){const k=holeSlots.indexOf(null);if(k<0||!p)return null;const h={x:p.x,z:p.z,sc,k,a:rr(0,6.28)};holeSlots[k]=h;
+  const y=groundY(h.x,h.z);tm4.compose(tv.set(h.x,y+.012,h.z),PQ.setFromEuler(PE.set(0,h.a,0)),tsc.set(.42*sc,.03,.36*sc));holeMesh.setMatrixAt(k*2,tm4);
+  tm4.compose(tv.set(h.x+Math.sin(h.a)*.42*sc,y+.05*sc,h.z+Math.cos(h.a)*.42*sc),PQ,tsc.set(.62*sc,.13*sc,.34*sc));holeMesh.setMatrixAt(k*2+1,tm4);
+  holeMesh.instanceMatrix.needsUpdate=true;return h}
+function dropHole(h){holeSlots[h.k]=null;holeMesh.setMatrixAt(h.k*2,Z);holeMesh.setMatrixAt(h.k*2+1,Z);holeMesh.instanceMatrix.needsUpdate=true}
+function newWarren(x,z){const h=addHole(holeSpot(x,z,2,1.2),1);if(!h)return null;const w={x:h.x,z:h.z,holes:[h],idle:0};warrens.push(w);return w}
+function joinWarren(e){let w=null,bd=14;for(const q of warrens){const d=Math.hypot(q.x-e.home.x,q.z-e.home.z);if(d<bd){bd=d;w=q}}
+  w=w||newWarren(e.home.x,e.home.z);if(!w)return;e.wr=w;const h=pick2(w.holes);e.home={x:h.x,z:h.z}}
+function boltHole(e,f){let best=null,bd=49;for(const w of warrens)for(const h of w.holes){const d=(h.x-e.pos.x)**2+(h.z-e.pos.z)**2;
+  if(d<bd&&(h.x-f.pos.x)**2+(h.z-f.pos.z)**2>d*.6){bd=d;best=h}}return best}
+for(const e of animals)if(e.type==='rabbit')joinWarren(e);
+// claw marks and rubs: thin pale strips on the trunk face nearest the animal
+const MARKN=40,markMesh=new THREE.InstancedMesh(box1,lamW(),MARKN*3);markMesh.frustumCulled=false;scene.add(markMesh);
+for(let k=0;k<MARKN*3;k++){markMesh.setMatrixAt(k,Z);markMesh.setColorAt(k,WHITE)}
+const marks=new Array(MARKN).fill(null);let markI=0;const CLAWC=C('#e0cfae'),RUBC=C('#d6be8c');
+function treeMark(T,x,z,kind){if(T.st!=='alive'||T.g<1)return;const k=markI;markI=(markI+1)%MARKN;marks[k]={T,kind};
+  const dx=x-T.x,dz=z-T.z,ax=Math.abs(dx)>Math.abs(dz),nx=ax?Math.sign(dx):0,nz=ax?0:Math.sign(dz),o=.575;
+  for(let q=0;q<3;q++){const n=k*3+q;
+    if(kind==='rub'&&q>0){markMesh.setMatrixAt(n,Z);continue}
+    const off=kind==='rub'?0:(q-1)*.1,y=T.base+(kind==='rub'?rr(.55,.8):1.45+q*.06+rr(-.05,.05)),w=kind==='rub'?.26:.035,hgt=kind==='rub'?.42:.5;
+    tm4.compose(tv.set(T.x+nx*o+(ax?0:off),y,T.z+nz*o+(ax?off:0)),Q0,tsc.set(ax?.03:w,hgt,ax?w:.03));markMesh.setMatrixAt(n,tm4);markMesh.setColorAt(n,kind==='rub'?RUBC:CLAWC)}
+  markMesh.instanceMatrix.needsUpdate=markMesh.instanceColor.needsUpdate=true}
+function signsDaily(s){
+  // the warren grows as the colony does, and slowly falls in once it is abandoned
+  const rab=BY.rabbit||NONE;for(const w of warrens)w.n=0;
+  for(const e of rab){if(!e.wr||!warrens.includes(e.wr))joinWarren(e);if(e.wr)e.wr.n++}
+  for(let n=warrens.length-1;n>=0;n--){const w=warrens[n];
+    if(w.n>w.holes.length*3&&w.holes.length<9&&Math.random()<.35){const h=addHole(holeSpot(w.x,w.z,2.2+w.holes.length*.45,1.1),1);if(h){w.holes.push(h);if(Math.random()<.4)log(`The rabbits dig a new burrow; the warren now has ${w.holes.length} entrances`)}}
+    if(w.n){w.idle=0;continue}
+    if(++w.idle>5&&w.idle%3===0){dropHole(w.holes.pop());if(!w.holes.length){warrens.splice(n,1);log('An abandoned warren finally caves in')}}}
+  // each fox family keeps an earth near its home
+  const fx=(BY.fox||NONE).filter(f=>f.grow>=1);
+  for(const f of fx)if(!dens.some(d=>Math.hypot(d.x-f.home.x,d.z-f.home.z)<4)){const h=addHole(holeSpot(f.home.x,f.home.z,2.5,1.5),1.45);if(h){dens.push(h);f.home={x:h.x,z:h.z}}}
+  for(let n=dens.length-1;n>=0;n--)if(!fx.some(f=>Math.hypot(dens[n].x-f.home.x,dens[n].z-f.home.z)<4)){dropHole(dens[n]);dens.splice(n,1)}
+  // bucks rub the velvet off their antlers on saplings and small trunks in autumn
+  if(s>=2&&s<2.9)for(const d of BY.deer||NONE)if(d.buck&&d.grow>=1&&Math.random()<.4){const T=nearTree(d.pos.x,d.pos.z,4);if(T)treeMark(T,d.pos.x,d.pos.z,'rub')}
+  for(let k=0;k<MARKN;k++){const m=marks[k];if(m&&m.T.st!=='alive'&&m.T.st!=='snag'){marks[k]=null;for(let q=0;q<3;q++)markMesh.setMatrixAt(k*3+q,Z);markMesh.instanceMatrix.needsUpdate=true}}}
 
 // flames, embers and the glow they cast
 const FLN=320,flMesh=new THREE.InstancedMesh(box1,new THREE.MeshBasicMaterial({color:'#fff'}),FLN);flMesh.frustumCulled=false;flMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(flMesh);
@@ -1411,7 +1457,7 @@ function frame(){
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={controls,signs:{worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={controls,signs:{warrens,dens,marks,worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
