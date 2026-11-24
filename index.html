@@ -46,6 +46,13 @@ h2{font-size:16px;margin:0 0 6px;font-weight:600;color:var(--acc)}
 label.px{display:flex;align-items:center;gap:8px;font-size:14px;min-height:44px}
 input[type=range]{width:96px;accent-color:var(--acc)}
 .hint{font-size:13px;opacity:.65}
+#cross{position:fixed;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%);pointer-events:none;display:none;mix-blend-mode:difference}
+#cross::before,#cross::after{content:'';position:absolute;background:#fff}
+#cross::before{left:8px;top:0;width:2px;height:18px}#cross::after{top:8px;left:0;height:2px;width:18px}
+#povmsg{position:fixed;left:50%;top:58%;transform:translateX(-50%);pointer-events:none;display:none;background:var(--card);border:2px solid rgba(255,255,255,.13);box-shadow:4px 4px 0 rgba(0,0,0,.45);padding:10px 14px;text-align:center;font-size:14px;line-height:1.5}
+body.pov #cross{display:block}body.pov:not(.locked) #povmsg{display:block}
+body.pov #pop,body.pov #log,body.pov #top .strip{display:none}
+body.pov.locked .hud .card{opacity:.82}
 button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2px}
 #err{position:fixed;inset:0;display:none;place-items:center;text-align:center;padding:24px}
 @media(max-width:760px){
@@ -78,10 +85,13 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
     <button class="b" data-sp="4" aria-pressed="false">4×</button>
     <button class="b" data-sp="16" aria-pressed="false">16×</button>
     <button class="b" id="orbit" aria-pressed="true">Orbit</button>
+    <button class="b" id="pov" aria-pressed="false" title="Walk around the forest in first person (V)">POV mode</button>
     <label class="px">Pixel size <input type="range" id="pxs" min="1" max="8" step="1" value="2"></label>
-    <span class="hint">Drag to look around · scroll to zoom</span>
+    <span class="hint" id="hint">Drag to look around · scroll to zoom</span>
   </nav>
 </div>
+<div id="cross" aria-hidden="true"></div>
+<div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV</div>
 <div id="err">WebGL is not available in this browser, so the forest cannot be drawn.</div>
 <script type="module">
 import * as THREE from 'three';
@@ -446,6 +456,9 @@ function setHidden(e,h){e.hidden=h;e.root.visible=!h}
 const live=t=>animals.filter(a=>a.alive&&a.type===t);
 function randomWalkable(edge){for(let a=0;a<400;a++){const i=RI(1,N-2),j=RI(1,N-2);if(edge&&!(i<5||j<5||i>N-6||j>N-6))continue;const x=cx(i),z=cx(j);if(walk(x,z))return[x,z]}return[0,0]}
 function randTarget(x,z,r){for(let k=0;k<10;k++){const tx=x+rr(-r,r),tz=z+rr(-r,r);if(walk(tx,tz)&&Math.abs(cellH(tx,tz)-cellH(x,z))<4)return{x:tx,z:tz}}return null}
+// the walker in POV mode: animals treat them as a threat (less so when sneaking)
+const player={type:'player',alive:true,hidden:true,pos:new THREE.Vector3(),stalk:false};
+function threatOf(e,type,r){const o=nearest(e,type,r);if(player.hidden)return o;const d=dist(e,player);return d<r&&(!o||d<dist(e,o))?player:o}
 function nearest(e,type,r){let best=null,bd=r*r;for(const o of animals){if(o.type!==type||!o.alive||o.hidden||o===e)continue;const dx=o.pos.x-e.pos.x,dz=o.pos.z-e.pos.z,d=dx*dx+dz*dz;if(d<bd){bd=d;best=o}}return best}
 const angTo=(a,b,mx)=>{const d=((b-a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;return a+clamp(d,-mx,mx)};
 function stepTo(e,tx,tz,sp,dt,ok=walk){
@@ -491,7 +504,7 @@ function birdNext(e){const F=e.flock;
   startFly(e,g.x,groundY(g.x,g.z)+.17,g.z,'ground')}
 const UPD={
   rabbit(e,dt,s){
-    const m=mom(e),f=nearest(e,'fox',10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
+    const m=mom(e),f=threatOf(e,'fox',10),fd=f?dist(e,f):99;e.fear=Math.max(0,(e.fear||0)-dt);
     const sense=f&&f.stalk?3.2:8; // a fox creeping low is hard to notice
     let up=0;
     if(f&&(fd<(f.stalk?1.6:3.4)||(e.fear>0&&fd<7))){ // bolt for it, zig-zagging
@@ -532,8 +545,8 @@ const UPD={
     e.tail.rotation.y=Math.sin(simT*(lie?.6:3)+e.phase*.3)*.25;e.tail.rotation.x=e.stalk?.1:-.12;
   },
   deer(e,dt,s){
-    const m=mom(e),b=nearest(e,'bear',11),bd=b?dist(e,b):99;
-    if(b&&bd<6.5){herd.alarm=simT;herd.from=b}
+    const m=mom(e),b=threatOf(e,'bear',11),bd=b?dist(e,b):99;
+    if(b&&bd<(b.stalk?3:6.5)){herd.alarm=simT;herd.from=b}
     const fleeing=herd.from&&herd.from.alive&&!herd.from.hidden&&simT-herd.alarm<4.5&&dist(e,herd.from)<18;
     let lie=0,head=1.05,bounce=0;
     if(fleeing){flee(e,herd.from,4,dt);head=0;e.rest=Math.min(e.rest||0,.3)}
@@ -604,7 +617,8 @@ const UPD={
         else{e.pos.y=groundY(e.pos.x,e.pos.z)+.17;e.hopT-=dt;peck=Math.sin(simT*13+e.phase)>.55?1:0;
           if(e.hopT<=0){e.hopT=rr(.3,1.2);const a=e.heading+rr(-1.2,1.2),l=rr(.25,.6),tx=e.pos.x+Math.sin(a)*l,tz=e.pos.z+Math.cos(a)*l;if(walk(tx,tz)){e.heading=a;e.hp={sx:e.pos.x,sz:e.pos.z,tx,tz,t:0}}}}
         const F=e.flock;let threat=false;
-        for(const o of animals){if(!o.alive||o.hidden)continue;const r=o.type==='fox'||o.type==='bear'?4:o.type==='deer'?1.5:0;if(r&&Math.abs(o.pos.x-e.pos.x)<r&&Math.abs(o.pos.z-e.pos.z)<r){threat=true;break}} // deer only spook them up close
+        if(!player.hidden&&dist(e,player)<(player.stalk?1.6:3.5))threat=true;
+        if(!threat)for(const o of animals){if(!o.alive||o.hidden)continue;const r=o.type==='fox'||o.type==='bear'?4:o.type==='deer'?1.5:0;if(r&&Math.abs(o.pos.x-e.pos.x)<r&&Math.abs(o.pos.z-e.pos.z)<r){threat=true;break}} // deer only spook them up close
         if(threat)F.alarm=simT; // one bird's alarm flushes the whole group
         e.timer-=dt;if(threat||simT-(F.alarm??-99)<1.2||e.timer<=0||isNight()||weather.amt>.55)flyToPerch(e,e.pos.x,e.pos.z,10)}
     }else{flap=1;tuck=0;e.act=null}
@@ -616,7 +630,11 @@ const UPD={
     const inS=s>=.15+e.d&&s<2.75+e.d;migrate(e,inS,6,dt);
     let tip=0,tuck=1,head=0;
     if(e.st==='present'){
-      if(isNight()){e.mv=0;e.target=null;head=1} // asleep on the water, head tucked
+      const pd=player.hidden?99:dist(e,player);
+      if(pd<(player.stalk?2:4)&&!e.shy){const a=Math.atan2(e.pos.x-player.pos.x,e.pos.z-player.pos.z);e.target=nearWater(e.pos.x+Math.sin(a)*5,e.pos.z+Math.cos(a)*5,3);e.dab=0;e.shy=1} // paddles away from people
+      if(pd>5)e.shy=0;
+      if(e.target&&e.shy){if(stepTo(e,e.target.x,e.target.z,1.1,dt,isWater)){e.target=null;e.idle=rr(2,5)}}
+      else if(isNight()){e.mv=0;e.target=null;head=1} // asleep on the water, head tucked
       else if(e.dab>0){e.dab-=dt;e.mv=0;tip=1} // dabbling: tail up, head under
       else if(e.target){if(stepTo(e,e.target.x,e.target.z,.5,dt,isWater)){e.target=null;e.idle=rr(2,7)}}
       else{e.mv=0;e.idle-=dt;e.heading+=Math.sin(simT*.7+e.phase)*dt*.25;
@@ -744,7 +762,7 @@ function updateWeather(dt,s){
   if(weather.target===0&&weather.amt<.05&&weather.kind!=='clear'){/* fade done */}
   wind=1.2+Math.sin(simT*.05)*.8;
   if(paused)return;
-  const a=weather.amt;const T=controls.target;
+  const a=weather.amt;const T=pov?player.pos:controls.target;
   if(a>.05&&weather.kind!=='clear'){const snow=weather.kind==='snow',n=(snow?220:480)*a*dt+Math.random();for(let k=0;k<Math.floor(n);k++)spawnP(snow?'snow':'rain',T.x+rr(-45,45),snow?rr(14,20):rr(18,24),T.z+rr(-45,45),snow?SNOW:RAINC)}
   if(s>2.3&&s<3&&decLeaves.length){const n=9*dt*Math.min(speed,4)+Math.random();for(let k=0;k<Math.floor(n);k++){const i=pick2(decLeaves),L=leaves[i];if(L.vis){leafMesh.getColorAt(i,tc);spawnP('leaf',L.x,L.y,L.z,tc)}}}
   if(s>.38&&s<.68&&cherryLeaves.length){const n=6*dt+Math.random();for(let k=0;k<Math.floor(n);k++){const L=leaves[pick2(cherryLeaves)];if(L.vis)spawnP('petal',L.x,L.y,L.z,PETAL)}}
@@ -797,7 +815,77 @@ document.querySelectorAll('[data-sp]').forEach(b=>b.addEventListener('click',()=
 $('orbit').addEventListener('click',()=>{controls.autoRotate=!controls.autoRotate;$('orbit').setAttribute('aria-pressed',controls.autoRotate)});
 $('orbit').setAttribute('aria-pressed',controls.autoRotate);
 $('pxs').addEventListener('input',e=>{pxSize=+e.target.value;resize()});
-addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body){e.preventDefault();$('pause').click()}});
+addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov){e.preventDefault();$('pause').click()}});
+
+// ---------- POV mode: walk the forest in first person ----------
+// Column tops for collision: terrain height, plus trees (tall, solid), rocks (their real tops) and logs/stumps.
+const solidTop=new Float32Array(N*N);
+for(let i=0;i<N;i++)for(let j=0;j<N;j++)solidTop[i*N+j]=H[i][j]+(blocked[i*N+j]?.7:0);
+for(const t of trees)solidTop[t.i*N+t.j]=H[t.i][t.j]+40;
+for(const[x,y,z,sz]of rockList){const i=Math.floor(x+HALF),j=Math.floor(z+HALF);if(inB(i,j))solidTop[i*N+j]=Math.max(solidTop[i*N+j],y+sz/2)}
+const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
+const keys=new Set();let pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
+const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
+function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
+function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
+  let g=-9;for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++){const t=topAt(i,j);if(t<=feet+STEP+1e-3)g=Math.max(g,t)}
+  return g}
+function hits(x,z,feet,lim){ // does the footprint at (x,z) overlap a column taller than feet+lim?
+  for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++)if(topAt(i,j)>feet+lim)return true;
+  return false}
+function spawnPoint(){for(let r=2;r<HALF;r++)for(let k=0;k<40;k++){const a=k/40*Math.PI*2,x=Math.round(Math.cos(a)*r)+.5,z=Math.round(Math.sin(a)*r)+.5;if(walk(x,z)&&!hits(x,z,cellH(x,z),.01))return[x,z]}return[.5,.5]}
+function setPov(on){
+  if(on===pov)return;pov=on;document.body.classList.toggle('pov',on);$('pov').setAttribute('aria-pressed',on);
+  controls.enabled=!on;player.hidden=!on;keys.clear();
+  if(on){saved.pos.copy(camera.position);saved.tgt.copy(controls.target);
+    const[x,z]=spawnPoint();player.pos.set(x,Math.max(cellH(x,z),SURF-1),z);vy=0;
+    yaw=Math.atan2(x,z);pitch=-.05; // face the middle of the hollow
+    camera.fov=72;camera.near=.05;lockPointer();
+    $('hint').textContent='Click the forest to look · WASD move · Space jump · Shift sneak · V leave';
+    log('You step into the forest')}
+  else{document.exitPointerLock?.();camera.fov=40;camera.near=.5;camera.position.copy(saved.pos);controls.target.copy(saved.tgt);camera.up.set(0,1,0);camera.lookAt(saved.tgt);
+    $('hint').textContent='Drag to look around · scroll to zoom'}
+  camera.updateProjectionMatrix()}
+$('pov').addEventListener('click',e=>{setPov(!pov);e.currentTarget.blur()});
+function lockPointer(){try{const r=canvas.requestPointerLock?.();r?.catch?.(()=>{})}catch(e){}}
+canvas.addEventListener('click',()=>{if(pov&&document.pointerLockElement!==canvas)lockPointer()});
+document.addEventListener('pointerlockchange',()=>{document.body.classList.toggle('locked',document.pointerLockElement===canvas);keys.clear()});
+document.addEventListener('mousemove',e=>{if(!pov||document.pointerLockElement!==canvas)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
+addEventListener('keydown',e=>{
+  if(e.target!==document.body&&e.target!==canvas&&!(e.target instanceof HTMLButtonElement))return;
+  if(e.code==='KeyV'&&!e.repeat){setPov(!pov);return}
+  if(!pov)return;
+  if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  if(e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
+  keys.add(e.code)});
+addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='KeyW'||e.code==='ArrowUp')sprint=false});
+addEventListener('blur',()=>keys.clear());
+addEventListener('beforeunload',e=>{if(pov&&keys.size){e.preventDefault()}}); // Ctrl+W while sprinting shouldn't close the tab
+function updatePlayer(dt){
+  const k=c=>keys.has(c);
+  const fw=(k('KeyW')||k('ArrowUp')?1:0)-(k('KeyS')||k('ArrowDown')?1:0),st=(k('KeyD')||k('ArrowRight')?1:0)-(k('KeyA')||k('ArrowLeft')?1:0);
+  const sneak=k('ShiftLeft')||k('ShiftRight');if(k('ControlLeft')||k('ControlRight'))sprint=fw>0;if(fw<=0)sprint=false;
+  const P=player.pos,inWater=P.y<SURF-.3&&isWater(P.x,P.z);
+  let sp=sneak?1.3:sprint?5.6:4.3;if(inWater)sp*=.55;
+  player.stalk=sneak;
+  let mx=0,mz=0;if(fw||st){const l=Math.hypot(fw,st),sx=Math.sin(yaw),cz=Math.cos(yaw);mx=(-sx*fw+cz*st)/l*sp*dt;mz=(-cz*fw-sx*st)/l*sp*dt}
+  // horizontal moves, one axis at a time; small ledges (≤0.6) are stepped up, like slabs and paths
+  const lim=onGround?STEP:.01,B=HALF-PR-.05;
+  for(const ax of['x','z']){const d=ax==='x'?mx:mz;if(!d)continue;const nx=ax==='x'?Math.max(-B,Math.min(B,P.x+d)):P.x,nz=ax==='z'?Math.max(-B,Math.min(B,P.z+d)):P.z;
+    if(hits(nx,nz,P.y,lim))continue;
+    if(sneak&&onGround&&groundUnder(nx,nz,P.y)<P.y-.6)continue; // sneaking keeps you from walking off edges
+    P.x=nx;P.z=nz;const g=groundUnder(P.x,P.z,P.y);if(onGround&&g>P.y)P.y=g}
+  // vertical: gravity, jumping, swimming
+  if(inWater){vy-=GRAV*.25*dt;vy*=Math.pow(.2,dt);if(k('Space'))vy=Math.min(vy+GRAV*.6*dt,3.2);}
+  else{vy-=GRAV*dt;if(k('Space')&&onGround)vy=JUMP}
+  P.y+=vy*dt;const g=groundUnder(P.x,P.z,P.y-vy*dt);
+  if(P.y<=g){P.y=g;if(vy<0)vy=0;onGround=true}else onGround=false;
+  if(inWater&&P.y>SURF-.3&&vy>0&&!k('Space'))vy=Math.min(vy,.5);
+  // camera at eye height, with a little head bob when walking
+  const moving=(fw||st)&&onGround;bob=moving?bob+dt*sp*2.2:bob*.85;
+  camera.position.set(P.x,P.y+(sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
+  camera.rotation.set(pitch,yaw,0,'YXZ');
+}
 
 // ---------- loop ----------
 const clock=new THREE.Clock();
@@ -817,7 +905,8 @@ function frame(){
   if((++shF&1)===0||jumped)renderer.shadowMap.needsUpdate=true;
   updateSky(s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
-  controls.update();renderer.render(scene,camera);
+  if(pov)updatePlayer(rdt);else controls.update();
+  renderer.render(scene,camera);
 }
 frame();
 }
