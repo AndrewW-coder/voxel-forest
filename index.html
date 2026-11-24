@@ -86,6 +86,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
     <button class="b" data-sp="16" aria-pressed="false">16×</button>
     <button class="b" id="orbit" aria-pressed="true">Orbit</button>
     <button class="b" id="pov" aria-pressed="false" title="Walk around the forest in first person (V)">POV mode</button>
+    <button class="b" id="snd" aria-pressed="false" title="Forest sounds (M)">Sound</button>
     <label class="px">Pixel size <input type="range" id="pxs" min="1" max="8" step="1" value="2"></label>
     <span class="hint" id="hint">Drag to look around · scroll to zoom</span>
   </nav>
@@ -724,7 +725,7 @@ for(let k=0;k<5;k++){const[x,z]=randomWalkable();spawn('fox',x,z)}
 const flocks=[];
 const BIRDC=[['#c62828','#8e1c1c'],['#2f6fd0','#20488a'],['#7a5230','#d9622b'],['#f2d23a','#3a3a3a']];
 for(let f=0;f<3;f++){const flock={c:new THREE.Vector3(R(-24,24),0,R(-24,24)),c2:new THREE.Vector3(),t:0};flock.c2.copy(flock.c);
-  for(let k=0;k<5;k++){const e=spawn('bird',0,0,{col:pick(BIRDC)});Object.assign(e,{flock,rad:R(4,9),alt:R(13,19),sp:R(4,6),ang:R(0,6.28),d:R(0,.2),st:'present',far:new THREE.Vector3(flock.c.x+R(-20,20),45,200)});e.flock.list=(e.flock.list||[]).concat(e)}
+  for(let k=0;k<5;k++){const col=pick(BIRDC),e=spawn('bird',0,0,{col});e.song=BIRDC.indexOf(col);Object.assign(e,{flock,rad:R(4,9),alt:R(13,19),sp:R(4,6),ang:R(0,6.28),d:R(0,.2),st:'present',far:new THREE.Vector3(flock.c.x+R(-20,20),45,200)});e.flock.list=(e.flock.list||[]).concat(e)}
   flocks.push(flock)}
 function flocksTick(dt){for(const F of flocks){F.t-=dt;if(F.t<=0){F.c2.set(rr(-30,30),0,rr(-30,30));F.t=rr(45,100)}F.c.lerp(F.c2,Math.min(1,dt*.05))}}
 if(waterCells.length)for(let k=0;k<6;k++){const[i,j]=pick(waterCells);const e=spawn('duck',cx(i),cx(j),{drake:k%2===0});Object.assign(e,{d:R(0,.18),st:'present',far:new THREE.Vector3(R(-30,30),40,210),home:{x:cx(i),z:cx(j)}});e.pos.y=W-.15}
@@ -876,6 +877,82 @@ let ftA=1/60,qT=0;
 function govern(rdt){if(document.hidden||rdt>=.1)return;ftA+=(rdt-ftA)*.05;qT+=rdt;
   if(ftA>.026&&qT>3&&quality>0){quality--;qT=0}else if(ftA<.0145&&qT>10&&quality<2){quality++;qT=0}else if(qT>10)qT=0}
 
+// ---------- sound: everything is synthesised with Web Audio, no files ----------
+const SND={on:false,ctx:null,voices:0,t:0},RIr=(a,b)=>Math.floor(rr(a,b+1));
+function audioInit(){
+  const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return false;
+  const c=SND.ctx=new AC(),sr=c.sampleRate;
+  const comp=c.createDynamicsCompressor();comp.connect(c.destination);
+  SND.master=c.createGain();SND.master.gain.value=.8;SND.master.connect(comp);
+  const mk=(f)=>{const b=c.createBuffer(1,sr*2,sr),d=b.getChannelData(0);f(d);return b};
+  SND.white=mk(d=>{for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1});
+  SND.brown=mk(d=>{let l=0;for(let i=0;i<d.length;i++){l=(l+.02*(Math.random()*2-1))/1.02;d[i]=l*3.5}});
+  const bed=(buf,type,f,q)=>{const src=c.createBufferSource();src.buffer=buf;src.loop=true;src.loopStart=Math.random();const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const g=c.createGain();g.gain.value=0;src.connect(fl).connect(g).connect(SND.master);src.start();return{fl,g}};
+  SND.wind=bed(SND.brown,'bandpass',380,.6);SND.rustle=bed(SND.white,'bandpass',2600,.5);SND.rain=bed(SND.white,'highpass',1400,.4);SND.roar=bed(SND.brown,'lowpass',260,.5);
+  return true}
+// one short voice: oscillator or noise -> filter -> envelope -> stereo pan; nodes are released when it ends
+function voice(t,{type='sine',noise=null,f0=1000,f1,dur=.1,vol=.2,pan=0,ft,ff,fq=1,a=.005,glide}={}){
+  const c=SND.ctx;if(SND.voices>28||vol<.004)return;SND.voices++;
+  let src;if(noise){src=c.createBufferSource();src.buffer=noise;src.loopStart=0;src.playbackRate.value=rr(.8,1.2)}else{src=c.createOscillator();src.type=type;src.frequency.setValueAtTime(f0,t);if(f1)src.frequency.exponentialRampToValueAtTime(f1,t+dur);if(glide)glide(src.frequency,t)}
+  const g=c.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+a);g.gain.exponentialRampToValueAtTime(.0005,t+dur);
+  let n=src;if(ft){const fl=c.createBiquadFilter();fl.type=ft;fl.frequency.value=ff;fl.Q.value=fq;n.connect(fl);n=fl}
+  const p=c.createStereoPanner();p.pan.value=clamp(pan,-1,1);n.connect(g).connect(p).connect(SND.master);
+  src.start(t,noise?Math.random():0);src.stop(t+dur+.05);src.onended=()=>{SND.voices--;p.disconnect()}}
+// where a sound sits relative to the listener (the walker in POV, the orbit target otherwise)
+const sR=new THREE.Vector3();
+function spot(x,z,range=14){const L=pov?camera.position:controls.target,dx=x-L.x,dz=z-L.z,d=Math.hypot(dx,dz)||1;
+  sR.setFromMatrixColumn(camera.matrixWorld,0);return{pan:clamp((dx*sR.x+dz*sR.z)/d)*Math.min(1,d/3)*.85,vol:1/(1+(d*d)/(range*range))}}
+const SONGS=[ // cardinal-like slurs, bluebird warble, robin carol, finch twitter
+  (t,o)=>{const n=RIr(3,5);for(let k=0;k<n;k++)voice(t+k*.21,{f0:3900,f1:2100,dur:.17,vol:.11*o.vol,pan:o.pan})},
+  (t,o)=>{let f=rr(2600,3200);for(let k=0;k<RIr(4,6);k++){const g=f*rr(.85,1.2);voice(t+k*.13,{f0:f,f1:g,dur:.11,vol:.09*o.vol,pan:o.pan});f=g}},
+  (t,o)=>{for(let k=0;k<3;k++){const f=rr(2100,2900);voice(t+k*.3,{f0:f,f1:f*rr(1.05,1.25),dur:.2,vol:.1*o.vol,pan:o.pan})}},
+  (t,o)=>{for(let k=0;k<RIr(6,11);k++){const f=rr(4200,6000);voice(t+k*.065,{f0:f,f1:f*rr(.8,1.15),dur:.05,vol:.07*o.vol,pan:o.pan})}},
+];
+const SFX={
+  owl(t,o){for(const[dt,f]of[[0,390],[.75,370],[1.05,365]])voice(t+dt,{f0:f,f1:f*.93,dur:.42,vol:.16*o.vol,pan:o.pan,a:.06})},
+  cricket(t,o){const f=rr(4200,4700);for(let r=0;r<3;r++)for(let k=0;k<3;k++)voice(t+r*.45+k*.045,{f0:f,dur:.028,vol:.035*o.vol,pan:o.pan,a:.003})},
+  frog(t,o){for(let k=0;k<RIr(4,7);k++)voice(t+k*.06,{type:'sawtooth',f0:150,f1:120,dur:.05,vol:.05*o.vol,pan:o.pan,ft:'lowpass',ff:700})},
+  quack(t,o){for(let k=0;k<RIr(2,3);k++)voice(t+k*.22,{type:'sawtooth',f0:300,f1:230,dur:.17,vol:.08*o.vol,pan:o.pan,ft:'bandpass',ff:1100,fq:3})},
+  howl(t,o){const d=rr(2.4,3.2),base=rr(360,420);voice(t,{type:'triangle',f0:base,dur:d,vol:.13*o.vol,pan:o.pan,a:.5,glide:(fr,t0)=>{fr.linearRampToValueAtTime(base*1.65,t0+.7);fr.linearRampToValueAtTime(base*1.5,t0+d*.7);fr.linearRampToValueAtTime(base*1.05,t0+d)}})},
+  peck(t,o){for(let k=0;k<14;k++)voice(t+k*.055,{noise:SND.white,dur:.025,vol:.12*o.vol*(1-k/18),pan:o.pan,ft:'bandpass',ff:1700,fq:4,a:.001})},
+  crackle(t,o){voice(t,{noise:SND.white,dur:rr(.01,.04),vol:rr(.05,.16)*o.vol,pan:o.pan,ft:'bandpass',ff:rr(1800,5000),fq:1.5,a:.001})},
+  splash(t,o){voice(t,{noise:SND.white,dur:.3,vol:.12*o.vol,pan:o.pan,ft:'bandpass',ff:900,fq:.8});voice(t,{f0:800,f1:1500,dur:.06,vol:.08*o.vol,pan:o.pan})},
+  plip(t,o){voice(t,{f0:900,f1:1700,dur:.05,vol:.1*o.vol,pan:o.pan});voice(t,{noise:SND.white,dur:.08,vol:.05*o.vol,pan:o.pan,ft:'bandpass',ff:1200})},
+  pop(t,o){voice(t,{f0:760,f1:330,dur:.07,vol:.12*o.vol,pan:o.pan})},
+  shutter(t){voice(t,{noise:SND.white,dur:.035,vol:.2,ft:'highpass',ff:2500,a:.001});voice(t+.07,{noise:SND.white,dur:.04,vol:.16,ft:'highpass',ff:1800,a:.001})},
+  thud(t,o){voice(t,{noise:SND.brown,dur:.12,vol:.2*o.vol,pan:o.pan,ft:'lowpass',ff:500})},
+  step(t,o,kind){const S={grass:['lowpass',900,.09,.09],leaves:['bandpass',2900,.15,.11],snow:['lowpass',1600,.14,.12],water:['bandpass',650,.26,.12],path:['bandpass',1200,.07,.08],wood:['bandpass',1900,.05,.1]}[kind]||['lowpass',900,.09,.09];
+    voice(t,{noise:SND.white,dur:S[2],vol:S[3],ft:S[0],ff:S[1],fq:kind==='wood'?4:.7,a:.004});if(kind==='leaves'||kind==='snow')voice(t+.04,{noise:SND.white,dur:.06,vol:S[3]*.6,ft:S[0],ff:S[1]*1.3})},
+};
+function sfx(name,x,z,range,...a){if(!SND.on)return;const o=x===undefined?{pan:0,vol:1}:spot(x,z,range);if(o.vol<.02)return;SFX[name](SND.ctx.currentTime+.02,o,...a)}
+function someone(type){const L=BY[type];if(!L||!L.length)return null;for(let k=0;k<6;k++){const a=L[Math.floor(Math.random()*L.length)];if(a.alive&&!a.hidden)return a}return null}
+function soundTick(rdt,s){
+  if(!SND.on)return;SND.t-=rdt;if(SND.t>0)return;const dt=.1;SND.t=dt;
+  const c=SND.ctx,t=c.currentTime,d=tod(),night=isNight(),wet=weather.amt,rain=weather.kind==='rain'?wet:0,P=pov?1:.6;
+  const set=(par,v)=>par.setTargetAtTime(v,t,.35);
+  set(SND.wind.g.gain,(.05+.05*wind+.08*wet)*P);set(SND.wind.fl.frequency,260+wind*140+Math.sin(tReal*.7)*60);
+  set(SND.rustle.g.gain,.022*wind*clamp(fol(s)+.25)*P);set(SND.rain.g.gain,.2*rain*(pov?1:.7));
+  set(SND.roar.g.gain,fireCells.length?Math.min(.25,fireCells.length*.01)*spot(fireCx,fireCz,25).vol:0);
+  if(paused)return;
+  const birdsHere=BY.bird?BY.bird.filter(b=>!b.hidden).length:0,dawn=Math.abs(d-.26)<.06?3.5:1;
+  if(birdsHere&&!night&&rain<.4&&Math.random()<dt*birdsHere*.06*dawn){const b=someone('bird');if(b)SONGS[b.song||0](t+rr(0,.08),spot(b.pos.x,b.pos.z,16))}
+  if(night&&s>.7&&s<2.5&&rain<.3&&Math.random()<dt*2.2){const[x,z]=randomWalkable();SFX.cricket(t+rr(0,.1),spot(x,z,12))}
+  if(night&&Math.random()<dt*.05){const p=pick2(perches);SFX.owl(t,spot(p.x,p.z,30))}
+  if((d>.7||d<.25)&&s>.15&&s<1.8&&Math.random()<dt*.5)SFX.frog(t,spot(pcx+rr(-pond.r,pond.r),pcz+rr(-pond.r,pond.r),14));
+  if(!night&&Math.random()<dt*.06){const q=someone('duck');if(q)SFX.quack(t,spot(q.pos.x,q.pos.z,18))}
+  if(!night&&s<2.5&&Math.random()<dt*.012){const tr=pick2(trees);if(!tr.dead)SFX.peck(t,spot(tr.x,tr.z,28))}
+  if(night&&Math.random()<dt*.025){const w=someone('wolf');if(w){const o=spot(w.pos.x,w.pos.z,60);SFX.howl(t,o);for(const m of BY.wolf)if(m!==w&&Math.random()<.7)SFX.howl(t+rr(.5,1.8),spot(m.pos.x,m.pos.z,60))}}
+  for(let k=0;k<Math.min(6,fireCells.length/4);k++)if(Math.random()<.6){const f=pick2(fireCells);SFX.crackle(t+rr(0,.1),spot(f.x,f.z,18))}
+}
+let fireCells=[],fireCx=0,fireCz=0; // filled in by the fire system
+function setSound(on){
+  if(on&&!SND.ctx&&!audioInit())return;
+  SND.on=on;$('snd').setAttribute('aria-pressed',on);$('snd').textContent=on?'Sound on':'Sound';
+  if(SND.ctx){if(on)SND.ctx.resume();else SND.ctx.suspend()}
+  try{localStorage.setItem('forest.sound',on?'1':'0')}catch(e){}}
+$('snd').addEventListener('click',e=>{setSound(!SND.on);e.currentTarget.blur()});
+document.addEventListener('visibilitychange',()=>{if(SND.ctx&&SND.on){document.hidden?SND.ctx.suspend():SND.ctx.resume()}});
+
 // ---------- HUD ----------
 const POP=[['rabbit','Rabbits','#b08b62'],['fox','Red foxes','#d8682a'],['deer','White-tailed deer','#8b5a2b'],['bear','Black bears','#4a3020'],['bird','Songbirds','#c62828'],['duck','Mallards','#2f7a3a']];
 $('popl').innerHTML=POP.map(([k,n,c])=>`<li><i class="sw" style="background:${c}"></i><span>${n}</span><b class="n" id="n-${k}">0</b><span class="note" id="t-${k}"></span></li>`).join('');
@@ -923,6 +1000,9 @@ for(let i=0;i<N;i++)for(let j=0;j<N;j++)solidTop[i*N+j]=H[i][j]+(blocked[i*N+j]?
 for(const t of trees)solidTop[t.i*N+t.j]=H[t.i][t.j]+40;
 for(const[x,y,z,sz]of rockList){const i=Math.floor(x+HALF),j=Math.floor(z+HALF);if(inB(i,j))solidTop[i*N+j]=Math.max(solidTop[i*N+j],y+sz/2)}
 const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
+let stepAcc=0,wasGround=true,lastVy=0;
+function surfaceAt(P){const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),t=inB(i,j)?topOf[i*N+j]:null,s=season();
+  if(isWater(P.x,P.z)&&iceAmt(s)<.5)return'water';if(P.y>cellH(P.x,P.z)+.3)return'wood';if(!t)return'path';if(snowAmt(s)>t.snowR)return'snow';if(t.lit*litter(s)>.3)return'leaves';return t.kind==='grass'?'grass':'path'}
 const keys=new Set();let pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
@@ -953,6 +1033,7 @@ document.addEventListener('mousemove',e=>{if(!pov||document.pointerLockElement!=
 addEventListener('keydown',e=>{
   if(e.target!==document.body&&e.target!==canvas&&!(e.target instanceof HTMLButtonElement))return;
   if(e.code==='KeyV'&&!e.repeat){setPov(!pov);return}
+  if(e.code==='KeyM'&&!e.repeat){setSound(!SND.on);return}
   if(!pov)return;
   if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
   if(e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
@@ -982,6 +1063,8 @@ function updatePlayer(dt){
   if(inWater&&P.y>SURF-.3&&vy>0&&!k('Space'))vy=Math.min(vy,.5);
   // camera at eye height, with a little head bob when walking
   const moving=(fw||st)&&onGround;bob=moving?bob+dt*sp*2.2:bob*.85;
+  if(moving){stepAcc+=dt*sp;if(stepAcc>.85){stepAcc=0;sfx('step',undefined,undefined,0,surfaceAt(P))}}
+  if(onGround&&!wasGround&&lastVy<-4)sfx('step',undefined,undefined,0,surfaceAt(P));wasGround=onGround;lastVy=vy;
   camera.position.set(P.x,P.y+(sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
   camera.rotation.set(pitch,yaw,0,'YXZ');
 }
@@ -1005,11 +1088,12 @@ function frame(){
   updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);govern(rdt);
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
+  soundTick(rdt,s);
   if(pov)updatePlayer(rdt);else controls.update();
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={SND,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
