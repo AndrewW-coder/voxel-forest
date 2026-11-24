@@ -394,7 +394,7 @@ const BL={dry:C('#a89a68'),sp:C('#8ad655'),su:C('#5aa83d'),au:C('#c2a64a')};
 WU.uSnowC.value.set(SNOW.r,SNOW.g,SNOW.b);
 
 const Z=new THREE.Matrix4().makeScale(0,0,0);
-function setWindow(set,s){const m=new THREE.Matrix4();let ch=false;set.items.forEach((f,k)=>{const v=s>=f.on&&s<f.off;if(v===f.vis)return;f.vis=v;ch=true;if(v){m.makeTranslation(f.x,f.y+set.ss[1]+set.hs[1]/2,f.z);set.head.setMatrixAt(k,m);m.makeTranslation(f.x,f.y+set.ss[1]/2,f.z);set.stem.setMatrixAt(k,m)}else{set.head.setMatrixAt(k,Z);set.stem.setMatrixAt(k,Z)}});if(ch){set.head.instanceMatrix.needsUpdate=set.stem.instanceMatrix.needsUpdate=true}}
+function setWindow(set,s){const m=new THREE.Matrix4();let ch=false;set.items.forEach((f,k)=>{const v=!f.gone&&s>=f.on&&s<f.off;if(v===f.vis)return;f.vis=v;ch=true;if(v){m.makeTranslation(f.x,f.y+set.ss[1]+set.hs[1]/2,f.z);set.head.setMatrixAt(k,m);m.makeTranslation(f.x,f.y+set.ss[1]/2,f.z);set.stem.setMatrixAt(k,m)}else{set.head.setMatrixAt(k,Z);set.stem.setMatrixAt(k,Z)}});if(ch){set.head.instanceMatrix.needsUpdate=set.stem.instanceMatrix.needsUpdate=true}}
 
 // ---------- clouds ----------
 // Merge the box meshes under each group (body, head, leg, wing...) into one mesh per material, so a whole
@@ -418,8 +418,8 @@ const PMAX=3000;
 const pMesh=new THREE.InstancedMesh(box1,lamW(),PMAX);pMesh.frustumCulled=false;pMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 const parts=[];for(let i=0;i<PMAX;i++){parts.push({on:false,was:false});pMesh.setMatrixAt(i,Z);pMesh.setColorAt(i,SNOW)}
 scene.add(pMesh);let pNext=0;
-const PS={leaf:[.22,.06,.22],petal:[.16,.05,.16],snow:[.14,.14,.14],rain:[.05,.5,.05]};
-function spawnP(kind,x,y,z,col){const i=pNext;pNext=(pNext+1)%PMAX;const p=parts[i];Object.assign(p,{on:true,kind,x,y,z,ph:Math.random()*6.28,rot:Math.random()*6,land:0,life:kind==='leaf'||kind==='petal'?30:12});pMesh.setColorAt(i,col);if(i<cLo)cLo=i;if(i>cHi)cHi=i}
+const PS={smoke:[.5,.5,.5],leaf:[.22,.06,.22],petal:[.16,.05,.16],snow:[.14,.14,.14],rain:[.05,.5,.05]};
+function spawnP(kind,x,y,z,col){const i=pNext;pNext=(pNext+1)%PMAX;const p=parts[i];Object.assign(p,{on:true,kind,x,y,z,ph:Math.random()*6.28,rot:Math.random()*6,land:0,life:kind==='smoke'?rr(2.5,4.5):kind==='leaf'||kind==='petal'?30:12});pMesh.setColorAt(i,col);if(i<cLo)cLo=i;if(i>cHi)cHi=i}
 const dummy=new THREE.Object3D();
 let wind=1.2;
 let cLo=PMAX,cHi=-1;
@@ -430,6 +430,7 @@ function updateParticles(dt,t){
     if(i<lo)lo=i;hi=i;
     p.was=true;p.life-=dt;const gy=groundY(p.x,p.z);
     if(p.kind==='rain'){p.y-=16*dt;p.x+=wind*.5*dt;if(p.y<gy)p.on=false}
+    else if(p.kind==='smoke'){p.y+=1.3*dt;p.x+=wind*.9*dt;p.z+=Math.sin(t+p.ph)*.3*dt;p.rot+=dt*.4}
     else if(p.kind==='snow'){p.y-=2.2*dt;p.x+=(wind*.6+Math.sin(t*1.3+p.ph)*.6)*dt;p.z+=Math.cos(t+p.ph)*.4*dt;if(p.y<gy)p.on=false}
     else if(p.land>0){p.land-=dt;if(p.land<=0)p.on=false}
     else{p.y-=(p.kind==='petal'?.7:.95)*dt;p.x+=(Math.sin(t*2.2+p.ph)*1.1+wind*.5)*dt;p.z+=Math.cos(t*1.7+p.ph)*.8*dt;p.rot+=dt*3;if(p.y<=gy+.08){p.y=gy+.04;p.land=4;p.rot=0}}
@@ -830,6 +831,7 @@ function newDay(){
     for(let k2=0;k2<RI(3,4);k2++){const t=randTarget(x,z,2)||{x,z};pack.members.push(spawn('wolf',t.x,t.z))}log('A wolf pack pads in from beyond the ridge')}
   if(pack.members.length&&!pack.leave&&(dr.length<=5||pack.hunger>5)){pack.leave=true;pack.prey=null;const[x,z]=randomWalkable(true);pack.exit={x,z};log(dr.length<=5?'With the deer thinned out, the wolves move on':'The hungry wolves move on')}
   if(s<.1)for(let k2=caches.length-1;k2>=0;k2--)if(caches[k2].yr<Math.floor(simDays/(4*DPS))-1)caches.splice(k2,1);
+  ecoDaily(s,k);
   if((fx.length===0&&rab.length>10)||(fx.length<3&&rab.length>30&&Math.random()<.25)){const[x,z]=randomWalkable(true);spawn('fox',x,z);log('A fox arrives from beyond the ridge')}
 }
 
@@ -838,13 +840,15 @@ const GR={dry:C('#8d8a55'),sp:C('#74c44a'),su:C('#4e9a36'),au:C('#a69a42')};
 const gcol=new THREE.Color(),tc=new THREE.Color();
 function grassColor(s,o){return o.copy(GR.dry).lerp(GR.sp,sm(0,.45,s)).lerp(GR.su,sm(.55,1.3,s)).lerp(GR.au,sm(1.9,2.5,s)).lerp(GR.dry,sm(2.75,3.1,s))}
 const tca=terrain.instanceColor.array;
+let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454');
+function paintTop(t){
+  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.wear>.02)tc.lerp(WORN,Math.min(1,t.wear)*.75)}else tc.copy(t.kind==='path'?PATH:SAND).multiplyScalar(t.jit);
+  if(t.burn>0)tc.lerp(CHARG,t.burn*.9);
+  if(visSn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
+  const o=t.idx*3;tca[o]=tc.r;tca[o+1]=tc.g;tca[o+2]=tc.b;topDirty=true}
 function updateSeasonVisuals(s,quiet){
   const sn=snowAmt(s),lt=litter(s),fo=fol(s);grassColor(s,gcol);
-  for(const t of tops){
-    if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.lit>0&&lt>0)tc.lerp(t.litC,t.lit*lt*.75)}else tc.copy(t.kind==='path'?PATH:SAND).multiplyScalar(t.jit);
-    if(sn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
-    const a=tca,o=t.idx*3;a[o]=tc.r;a[o+1]=tc.g;a[o+2]=tc.b;
-  }
+  visSn=sn;visLt=lt;for(const t of tops)paintTop(t);
   terrain.instanceColor.needsUpdate=true;
   WU.uS.value=s;WU.uFol.value=fo;WU.uSnow.value=sn;curFol=fo;
   setWindow(flowers,s);setWindow(shrooms,s);setWindow(berries,s);setWindow(cattails,s);
@@ -1033,7 +1037,7 @@ function audioInit(){
 // one short voice: oscillator or noise -> filter -> envelope -> stereo pan; nodes are released when it ends
 function voice(t,{type='sine',noise=null,f0=1000,f1,dur=.1,vol=.2,pan=0,ft,ff,fq=1,a=.005,glide}={}){
   const c=SND.ctx;if(SND.voices>28||vol<.004)return;SND.voices++;
-  let src;if(noise){src=c.createBufferSource();src.buffer=noise;src.loopStart=0;src.playbackRate.value=rr(.8,1.2)}else{src=c.createOscillator();src.type=type;src.frequency.setValueAtTime(f0,t);if(f1)src.frequency.exponentialRampToValueAtTime(f1,t+dur);if(glide)glide(src.frequency,t)}
+  let src;if(noise){src=c.createBufferSource();src.buffer=noise;src.loop=dur>.9;src.playbackRate.value=rr(.8,1.2)}else{src=c.createOscillator();src.type=type;src.frequency.setValueAtTime(f0,t);if(f1)src.frequency.exponentialRampToValueAtTime(f1,t+dur);if(glide)glide(src.frequency,t)}
   const g=c.createGain();g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(vol,t+a);g.gain.exponentialRampToValueAtTime(.0005,t+dur);
   let n=src;if(ft){const fl=c.createBiquadFilter();fl.type=ft;fl.frequency.value=ff;fl.Q.value=fq;n.connect(fl);n=fl}
   const p=c.createStereoPanner();p.pan.value=clamp(pan,-1,1);n.connect(g).connect(p).connect(SND.master);
@@ -1103,7 +1107,7 @@ function updHud(s){
   const df=simDays%1,hh=Math.floor(df*24),mm=Math.floor((df*24-hh)*60/10)*10;
   const temp=Math.round(9.5+14.5*Math.cos((s-1.5)/4*Math.PI*2)+4*Math.sin((df-.35)*Math.PI*2)-weather.amt*2);
   const w=weather.amt<.15?(daylight<.2?'Clear night':'Clear'):weather.kind==='snow'?'Snowing':'Raining';
-  $('sub').textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} · ${temp}°C · ${w}`;
+  $('sub').textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} · ${temp}°C · ${fireList.length?w+' · Wildfire!':drought>=6&&s>1&&s<2.6?w+' · Dry spell':w}`;
   $('mark').style.left=(s/4*100)+'%';document.documentElement.style.setProperty('--acc',ACC[si]);
   const c={};for(const a of animals)if(a.alive){(c[a.type]??=[]).push(a)}
   const L=t=>c[t]||[],young=t=>L(t).filter(a=>a.grow<1).length;
@@ -1216,10 +1220,153 @@ const clock=new THREE.Clock();
 let prevS=season(),lastDay=Math.floor(simDays),visT=0,hudT=0,tReal=0;
 log('A new year of observation begins in Ashwood Hollow');
 let visS=-9,shF=0;
+// ---------- forest life cycle: old trees die, stand as snags, topple, rot into mossy logs, and saplings fill the gap ----------
+const aTA=leafGeo.attributes.aT,TRUNKC=trunkList.map(b=>b[3]),CHAR=C('#1d1915'),WEATHER=C('#8f877a');
+const tm4=new THREE.Matrix4(),tv=new THREE.Vector3(),tsc=new THREE.Vector3(),Q0=new THREE.Quaternion();
+const treeAt=new Int16Array(N*N).fill(-1),bushAt=new Int16Array(N*N).fill(-1);trees.forEach((t,k)=>treeAt[t.i*N+t.j]=k);bushes.forEach((b,k)=>bushAt[b.i*N+b.j]=k);
+for(const T of trees.concat(bushes)){T.burnt=0;T.timer=0}
+berries.items.forEach((f,k)=>{f.k=k;if(f.bush)(f.bush.bi||(f.bush.bi=[])).push(f)});
+let aliveTrees=trees.length;
+// only the instance ranges of the tree that changed are re-uploaded
+function setTreeMats(T){
+  if(T.t1!==undefined){const hide=T.st==='log'||T.st==='gone',stump=T.st==='log',q=Math.max(.05,T.g);
+    for(let k=T.t0;k<T.t1;k++){const b=trunkList[k];
+      if(stump){if(k===T.t0){tm4.compose(tv.set(T.x,T.base+.3,T.z),Q0,tsc.set(1,.6,1));trunks.setMatrixAt(k,tm4)}else trunks.setMatrixAt(k,Z)}
+      else if(hide)trunks.setMatrixAt(k,Z);
+      else{tm4.compose(tv.set(T.x+(b[0]-T.x)*q,T.base+(b[1]-T.base)*q,T.z+(b[2]-T.z)*q),Q0,tsc.set(b[4]*q,b[5]*q,b[6]*q));trunks.setMatrixAt(k,tm4)}}
+    trunks.instanceMatrix.addUpdateRange(T.t0*16,(T.t1-T.t0)*16);trunks.instanceMatrix.needsUpdate=true}
+  for(let k=T.l0;k<T.l1;k++)leafMesh.setMatrixAt(k,leafM(leaves[k],tm4));
+  leafMesh.instanceMatrix.addUpdateRange(T.l0*16,(T.l1-T.l0)*16);leafMesh.instanceMatrix.needsUpdate=true}
+function setTreeLook(T){ // charring and leaf loss go to the leaf shader; the trunk is recoloured
+  const a=aTA.array,ch=T.char*.92;
+  for(let k=T.l0;k<T.l1;k++){a[k*2]=ch;a[k*2+1]=T.dead||leaves[k].th<T.burnt?1:0}
+  aTA.addUpdateRange(T.l0*2,(T.l1-T.l0)*2);aTA.needsUpdate=true;
+  if(T.t1!==undefined){for(let k=T.t0;k<T.t1;k++){tc.copy(TRUNKC[k]);if(T.dead&&T.char<.1)tc.lerp(WEATHER,.4);tc.lerp(CHAR,T.char*.9);trunks.setColorAt(k,tc)}
+    const ic=trunks.instanceColor;ic.addUpdateRange(T.t0*3,(T.t1-T.t0)*3);ic.needsUpdate=true}}
+const LOGN=28,logMesh=new THREE.InstancedMesh(box1,lamW(),LOGN),logMoss=new THREE.InstancedMesh(box1,mossMat,LOGN);
+for(const m of[logMesh,logMoss]){m.castShadow=m.receiveShadow=true;m.frustumCulled=false;for(let k=0;k<LOGN;k++)m.setMatrixAt(k,Z);scene.add(m)}
+for(let k=0;k<LOGN;k++)logMesh.setColorAt(k,WHITE);
+const logSlots=new Array(LOGN).fill(null);
+function placeLog(T){const k=logSlots.indexOf(null);if(k<0)return false;
+  const len=Math.min(4,Math.max(2,T.th-1)),dirs=DIRS.slice().sort(()=>Math.random()-.5);
+  for(const[dx,dz]of dirs){let ok=true;for(let q=1;q<=len;q++){const i=T.i+dx*q,j=T.j+dz*q;if(!inB(i,j)||H[i][j]!==T.base||blocked[i*N+j]||fireT[i*N+j]>0){ok=false;break}}
+    if(!ok)continue;T.log={k,dx,dz,len};logSlots[k]=T;
+    for(let q=1;q<=len;q++){const c=(T.i+dx*q)*N+T.j+dz*q;blocked[c]=1;solidTop[c]=T.base+.7}return true}
+  return false}
+function drawLog(T){const L=T.log,r=T.rot||0,mx=T.x+L.dx*(L.len+1)/2,mz=T.z+L.dz*(L.len+1)/2,ln=L.len+.3,t=.72-.14*r;
+  tm4.compose(tv.set(mx,T.base+t/2,mz),Q0,tsc.set(L.dx?ln:t,t,L.dz?ln:t));logMesh.setMatrixAt(L.k,tm4);
+  tc.copy(TRUNKC[T.t0]).multiplyScalar(1-.35*r);if(T.char)tc.lerp(CHAR,T.char*.8);logMesh.setColorAt(L.k,tc);
+  const mw=Math.min(1,r*1.6);if(mw>.04){tm4.compose(tv.set(mx,T.base+t+.04,mz),Q0,tsc.set(L.dx?ln*.9*mw:t*.75,.09,L.dz?ln*.9*mw:t*.75));logMoss.setMatrixAt(L.k,tm4)}else logMoss.setMatrixAt(L.k,Z);
+  logMesh.instanceMatrix.needsUpdate=logMoss.instanceMatrix.needsUpdate=logMesh.instanceColor.needsUpdate=true}
+function clearLog(T){const L=T.log;if(!L)return;logSlots[L.k]=null;logMesh.setMatrixAt(L.k,Z);logMoss.setMatrixAt(L.k,Z);logMesh.instanceMatrix.needsUpdate=logMoss.instanceMatrix.needsUpdate=true;
+  for(let q=1;q<=L.len;q++){const i=T.i+L.dx*q,j=T.j+L.dz*q,c=i*N+j;blocked[c]=0;solidTop[c]=H[i][j]}T.log=null}
+function killTree(T){if(!T.dead&&!T.bush)aliveTrees--;T.dead=true;T.st='snag';T.timer=rr(8,20);T.burnt=1;setTreeLook(T)}
+function clearCell(T){const c=T.i*N+T.j;if(!T.bush){blocked[c]=0;solidTop[c]=T.base}}
+function fellTree(T){
+  if(T.bush){T.st='gone';T.timer=rr(6,14);setTreeMats(T);return}
+  if(placeLog(T)){T.st='log';T.rot=0;T.rotD=rr(32,56);setTreeMats(T);solidTop[T.i*N+T.j]=T.base+.6;drawLog(T);sfx('thud',T.x,T.z,30);if(Math.random()<.5)log(`A dead ${T.type} topples over`)}
+  else if((T.tries=(T.tries||0)+1)>3){T.st='gone';T.timer=rr(4,12);setTreeMats(T);clearCell(T)}
+  else T.timer=rr(3,6)}
+function sproutTree(T){T.st='alive';T.dead=false;T.char=0;T.burnt=0;T.tries=0;T.g=T.bush?.15:.08;T.gd=T.bush?rr(12,24):rr(40,64);
+  if(!T.bush){const c=T.i*N+T.j;blocked[c]=1;solidTop[c]=T.base+.3;aliveTrees++}setTreeMats(T);setTreeLook(T)}
+function lifeDaily(s){
+  let sap=0;
+  for(const T of trees.concat(bushes)){
+    if(T.st==='alive'){
+      if(T.g<1){T.g=Math.min(1,T.g+1/T.gd);setTreeMats(T);if(!T.bush)solidTop[T.i*N+T.j]=T.base+(T.g>.5?40:T.g*T.th+.3);else if(T.g>=.8)for(const f of T.bi||NONE)f.gone=false}
+      else if(!T.bush&&aliveTrees>170&&Math.random()<.02/(4*DPS)){killTree(T);if(Math.random()<.6)log(`An old ${T.type} dies, leaving a standing snag`)}}
+    else if(T.st==='snag'){if(--T.timer<=0)fellTree(T)}
+    else if(T.st==='log'){T.rot+=1/T.rotD;drawLog(T);if(T.rot>=1){clearLog(T);T.st='gone';T.timer=rr(4,12);setTreeMats(T);clearCell(T)}}
+    else if(T.st==='gone'&&--T.timer<=0&&s<1.7&&fireT[T.i*N+T.j]<=0&&!(T.bush&&topOf[T.i*N+T.j]?.burn>.5)){sproutTree(T);if(!T.bush)sap++}}
+  if(sap)log(sap>1?`${sap} saplings push up where old trees fell`:'A sapling pushes up where an old tree fell')}
+
+// ---------- wildfire: lightning after a dry spell; spreads cell to cell with the wind; rain puts it out ----------
+const fireT=new Float32Array(N*N),fireList=[],scars=[],FIRE={yr:-2,burnt:0,rad:0},FIRE_CAP=300,fcObj=[];
+let drought=0,flashT=0,cellDirty=false;
+const cellItems=new Map();for(const set of[flowers,shrooms,berries])set.items.forEach((f,k)=>{const c=Math.floor(f.x+HALF)*N+Math.floor(f.z+HALF);if(!cellItems.has(c))cellItems.set(c,[]);cellItems.get(c).push([set,k])});
+function hideItem(set,k){const f=set.items[k];f.gone=true;if(f.vis){f.vis=false;set.head.setMatrixAt(k,Z);set.stem.setMatrixAt(k,Z);set.head.instanceMatrix.needsUpdate=set.stem.instanceMatrix.needsUpdate=true}}
+function cellR(t){return Math.round(255*clamp(t.gr??1)*(1-Math.min(1,t.wear))*(1-.8*t.graze))}
+function setCell(t){const o=(t.j*N+t.i)*4;cellData[o]=cellR(t);cellData[o+2]=Math.round(t.burn*255);cellDirty=true}
+function fuel(c,s){if(fireT[c]>0)return 0;const t=topOf[c];if(!t||t.burn>.35||snowAmt(s)>t.snowR)return 0;
+  const ti=treeAt[c];if(ti>=0){const T=trees[ti];return T.st==='alive'&&T.g>.3?(aliveTrees>150?1.3:0):T.st==='snag'?1:0}
+  const bi=bushAt[c];if(bi>=0&&bushes[bi].st==='alive')return 1.2;
+  return t.kind==='grass'?(t.gr??1)*(1-t.graze*.6):t.kind==='path'?.12:0}
+function ignite(c){const t=topOf[c],ti=treeAt[c],bi=bushAt[c],T=ti>=0?trees[ti]:bi>=0?bushes[bi]:null,big=T&&(T.st==='alive'||T.st==='snag');
+  fireT[c]=DAY*(big?(T.bush?rr(.2,.35):rr(.5,.9)):rr(.1,.2));fireList.push(c);FIRE.burnt++;
+  if(big){if(!T.dead&&!T.bush)aliveTrees--;T.st='burning';T.fdur=fireT[c];if(T.bush)for(const f of T.bi||NONE)hideItem(berries,f.k)}
+  if(t){t.burn=1;t.gr=0;setCell(t);paintTop(t);if(!t.scar){t.scar=1;scars.push(t)}}
+  for(const[set,k]of cellItems.get(c)||NONE)hideItem(set,k)}
+const D4=[[1,0],[-1,0],[0,1],[0,-1]],FIREO={type:'fire',alive:true,hidden:false,pos:new THREE.Vector3()};
+function fireTick(dt,s){
+  if(!fireList.length)return;
+  const wet=weather.kind!=='clear'?weather.amt:0,rate=.55*(.6+Math.min(drought,12)*.05)*(1-Math.min(1,wet*2));let sx=0,sz=0,m=0;
+  for(let n=fireList.length-1;n>=0;n--){const c=fireList[n],i=(c/N)|0,j=c%N;fireT[c]-=dt*(1+wet*6);
+    const ti=treeAt[c],bi=bushAt[c],T=ti>=0?trees[ti]:bi>=0?bushes[bi]:null,burning=T&&T.st==='burning';
+    if(burning){const f=1-Math.max(0,fireT[c])/T.fdur;T.char=Math.max(T.char,f);T.burnt=Math.min(1,f*1.6);setTreeLook(T)}
+    if(fireT[c]<=0){fireT[c]=0;fireList[n]=fireList[fireList.length-1];fireList.pop();if(burning){T.dead=true;T.burnt=1;T.char=1;T.st='snag';T.timer=rr(4,14);setTreeLook(T)}continue}
+    sx+=i;sz+=j;m++;
+    if(rate>0&&FIRE.burnt<FIRE_CAP)for(const[di,dj]of D4){const a=i+di,b=j+dj;if(!inB(a,b))continue;const nc=a*N+b,f=fuel(nc,s);if(!f)continue;
+      if(Math.random()<dt*rate*f*(di>0?1+wind*.45:di<0?.55:1)*(T&&!T.bush?1.6:1))ignite(nc)}}
+  fireCells.length=0;for(const c of fireList)fireCells.push(fcObj[c]||(fcObj[c]={x:cx((c/N)|0),z:cx(c%N)}));
+  if(m){fireCx=cx(sx/m);fireCz=cx(sz/m);FIRE.rad=Math.sqrt(m)*1.2+3}
+  if(!fireList.length){log(wet>.2?'The rain puts out the fire':'The fire burns itself out');FIRE.yr=Math.floor(simDays/(4*DPS))}}
+fireThreat=(e,bd)=>{if(!fireList.length)return null;const r=Math.min(bd,7);if(Math.hypot(e.pos.x-fireCx,e.pos.z-fireCz)>FIRE.rad+r)return null;
+  let best=-1,b2=r*r;for(const c of fireList){const dx=cx((c/N)|0)-e.pos.x,dz=cx(c%N)-e.pos.z,q=dx*dx+dz*dz;if(q<b2){b2=q;best=c}}
+  if(best<0)return null;FIREO.pos.set(cx((best/N)|0),0,cx(best%N));return FIREO};
+SFX.thunder=(t,o)=>{voice(t,{noise:SND.white,dur:.3,vol:.22*o.vol,ft:'lowpass',ff:2600,a:.002});voice(t+.06,{noise:SND.brown,dur:rr(2.5,4),vol:.5*o.vol,ft:'lowpass',ff:200,a:.08})};
+function lightning(fire){flashT=.4;
+  if(!fire){const[x,z]=randomWalkable();sfx('thunder',x,z,60);return}
+  let T=null;for(let a=0;a<40;a++){const q=pick2(trees);if(q.st==='alive'&&q.g>=1&&(!T||q.base+q.th>T.base+T.th))T=q}
+  if(!T)return;sfx('thunder',T.x,T.z,80);FIRE.burnt=0;ignite(T.i*N+T.j);log(`Lightning strikes a dry ${T.type} and a wildfire breaks out`)}
+function regrow(s){ // burnt ground greens up again; the scorch fades over most of a year
+  for(let n=scars.length-1;n>=0;n--){const t=scars[n];if(fireT[t.i*N+t.j]>0)continue;
+    t.burn=Math.max(0,t.burn-.035);if(s<2.8||s>=3.9)t.gr=Math.min(1,(t.gr||0)+.09);setCell(t);paintTop(t);
+    if(t.gr>.6)for(const[set,k]of cellItems.get(t.i*N+t.j)||NONE)if(set!==berries)set.items[k].gone=false;
+    if(t.burn<=0&&t.gr>=1){t.scar=0;scars[n]=scars[scars.length-1];scars.pop()}}}
+// forgotten acorn caches sprout in spring; a gap in the canopy nearby lets one grow into a tree
+const SEEDN=40,seedMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#5fae3a'}),SEEDN*2);seedMesh.frustumCulled=false;for(let k=0;k<SEEDN*2;k++)seedMesh.setMatrixAt(k,Z);scene.add(seedMesh);
+const seeds=[];let seedYr=-1;
+function drawSeeds(){for(let k=0;k<SEEDN;k++){const q=seeds[k];if(!q){seedMesh.setMatrixAt(k*2,Z);seedMesh.setMatrixAt(k*2+1,Z);continue}const g=groundY(q.x,q.z);
+  tm4.compose(tv.set(q.x,g+.15,q.z),Q0,tsc.set(.05,.3,.05));seedMesh.setMatrixAt(k*2,tm4);tm4.compose(tv.set(q.x,g+.3,q.z),Q0,tsc.set(.26,.05,.12));seedMesh.setMatrixAt(k*2+1,tm4)}seedMesh.instanceMatrix.needsUpdate=true}
+function seedlings(s){const yr=Math.floor(simDays/(4*DPS));
+  if(s>.1&&s<.5&&seedYr!==yr&&caches.length){seedYr=yr;let n=0,v=0;
+    for(let k=caches.length-1;k>=0;k--){const c=caches[k];if(c.yr>=yr||Math.random()>.4)continue;caches.splice(k,1);
+      const slot=trees.find(T=>T.st==='gone'&&Math.hypot(T.x-c.x,T.z-c.z)<8);if(slot){slot.timer=0;n++}else if(seeds.length<SEEDN&&walk(c.x,c.z)){seeds.push({x:c.x,z:c.z});v++}}
+    if(n||v)log(n?'A forgotten acorn takes root in a gap in the canopy':`${v} forgotten acorn${v>1?'s':''} sprout${v>1?'':'s'} as seedlings`);drawSeeds()}
+  if(s>=2.9&&seeds.length){seeds.length=0;drawSeeds()}}
+function ecoDaily(s,kind){
+  if(kind==='rain'||kind==='snow')drought=Math.max(0,drought-3);else if(s>=.9&&s<2.6)drought++;else drought=Math.max(0,drought-1);
+  const yr=Math.floor(simDays/(4*DPS));
+  if(!fireList.length&&drought>=7&&s>1.1&&s<2.6&&yr>=FIRE.yr+2&&Math.random()<.22)lightning(true);
+  else if(kind==='rain'&&s>.6&&s<2.3&&Math.random()<.2)lightning(false); // a summer thunderstorm
+  lifeDaily(s);regrow(s);seedlings(s)}
+function ecoTick(dt){fireTick(dt,season());if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){terrain.instanceColor.needsUpdate=true;topDirty=false}}
+// flames, embers and the glow they cast
+const FLN=320,flMesh=new THREE.InstancedMesh(box1,new THREE.MeshBasicMaterial({color:'#fff'}),FLN);flMesh.frustumCulled=false;flMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(flMesh);
+const fls=[];for(let k=0;k<FLN;k++){fls.push({on:false});flMesh.setMatrixAt(k,Z);flMesh.setColorAt(k,WHITE)}
+let flI=0,flLive=0,flAcc=0,smAcc=0;const FLY=C('#ffe27a'),FLR=C('#ff4a12'),SMOKE=C('#4a4744');
+const fireLight=new THREE.PointLight('#ff8a3a',0,34,1.2);scene.add(fireLight); // always present, so turning it on never recompiles shaders
+function flameAt(c,ember){const i=(c/N)|0,j=c%N,ti=treeAt[c],T=ti>=0?trees[ti]:bushAt[c]>=0?bushes[bushAt[c]]:null;let y=Math.max(H[i][j],W)+.15;
+  if(T&&T.st==='burning')y=T.base+(T.bush?rr(.1,.9):rr(.3,T.th+2.5*(1-T.burnt)));
+  const p=fls[flI];flI=(flI+1)%FLN;if(!p.on)flLive++;
+  Object.assign(p,{on:true,x:cx(i)+rr(-.45,.45),y,z:cx(j)+rr(-.45,.45),t:0,life:ember?rr(1.5,3):rr(.35,.8),sz:ember?.08:rr(.3,.6),ember,vx:rr(-.3,.3)})}
+function updateFire(dt,s){
+  if(flashT>0){flashT-=dt;if(flashT>0)hemi.intensity+=flashT*9*(Math.sin(flashT*60)>-.3?1:.2)}
+  const n=fireList.length;fireLight.intensity=n?Math.min(1,n/25)*(7+Math.sin(tReal*17)*1.2+Math.sin(tReal*7.3)*.9)*(1-daylight*.55):0;
+  if(n){fireLight.position.set(fireCx,groundY(fireCx,fireCz)+3,fireCz);
+    if(!paused){flAcc+=dt*Math.min(n,80)*10*QMUL[quality];while(flAcc>1){flAcc--;flameAt(pick2(fireList),Math.random()<.15)}
+      smAcc+=dt*Math.min(n,40)*1.2*QMUL[quality];while(smAcc>1){smAcc--;const c=pick2(fireList),i=(c/N)|0,j=c%N,ti=treeAt[c];spawnP('smoke',cx(i)+rr(-.4,.4),(ti>=0?trees[ti].base+trees[ti].th:Math.max(H[i][j],W))+rr(.5,1.5),cx(j)+rr(-.4,.4),SMOKE)}}}
+  if(!flLive)return;
+  for(let k=0;k<FLN;k++){const p=fls[k];if(!p.on)continue;p.t+=dt;const f=p.t/p.life;if(f>=1){p.on=false;flLive--;flMesh.setMatrixAt(k,Z);continue}
+    p.y+=(p.ember?1.8:1.4)*dt;p.x+=(p.vx+wind*.35)*dt;
+    dummy.position.set(p.x,p.y,p.z);dummy.rotation.set(0,f*3,0);const q=p.sz*(p.ember?1:1-f*.7);dummy.scale.set(q,p.ember?q:q*1.6,q);dummy.updateMatrix();flMesh.setMatrixAt(k,dummy.matrix);
+    flMesh.setColorAt(k,tc.copy(FLY).lerp(FLR,p.ember?.4:f))}
+  flMesh.instanceMatrix.needsUpdate=flMesh.instanceColor.needsUpdate=true}
+
 function frame(){
   requestAnimationFrame(frame);
   const rdt=Math.min(clock.getDelta(),.1);tReal+=rdt;
-  if(!paused){const sdt=rdt*speed;const n=Math.ceil(sdt/.05),h=sdt/n;for(let k=0;k<n;k++){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h)}
+  if(!paused){const sdt=rdt*speed;const n=Math.ceil(sdt/.05),h=sdt/n;for(let k=0;k<n;k++){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h)}ecoTick(sdt);
     while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}
   const s=season();
   if(!jumped)for(const[at,msg]of MILES)if(crossed(prevS,s,at)&&prevS!==s)log(msg);
@@ -1227,7 +1374,7 @@ function frame(){
   // seasonal recolouring only when the season has actually moved (nothing at all while paused)
   visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.003)){updateSeasonVisuals(s,jumped);visS=s;visT=.12;jumped=false}
   if((++shF%(4-quality))===0||jumped)renderer.shadowMap.needsUpdate=true;
-  updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);updateSmallLife(rdt,s);govern(rdt);
+  updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);updateSmallLife(rdt,s);updateFire(rdt,s);govern(rdt);
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
   soundTick(rdt,s);
@@ -1235,7 +1382,7 @@ function frame(){
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={controls,eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
