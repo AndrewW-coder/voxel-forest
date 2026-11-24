@@ -53,6 +53,25 @@ input[type=range]{width:96px;accent-color:var(--acc)}
 body.pov #cross{display:block}body.pov:not(.locked) #povmsg{display:block}
 body.pov #pop,body.pov #log,body.pov #top .strip{display:none}
 body.pov.locked .hud .card{opacity:.82}
+#journal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(600px,92vw);max-height:80vh;overflow:auto;display:none;z-index:5}
+body.jopen #journal{display:block}
+#journal header{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:6px}
+#journal ul{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:0 18px}
+#journal li{border-top:1px solid rgba(255,255,255,.08);padding:7px 0;font-size:14px;line-height:1.35}
+#journal li b{display:block;font-weight:600;font-size:15px}#journal li.unk{opacity:.45}
+.jn{display:block;font-size:12px;opacity:.7;margin-bottom:2px}
+#toast{position:fixed;left:50%;top:16px;transform:translateX(-50%);display:none;z-index:6;font-size:15px;pointer-events:none;max-width:90vw;text-align:center}
+#toast.on{display:block}
+#vf{position:fixed;inset:5%;display:none;pointer-events:none;z-index:4}
+body.photo #vf{display:block}body.photo .hud,body.photo #cross,body.photo #povmsg{display:none!important}
+#vf i{position:absolute;width:40px;height:40px;border:3px solid #fff;opacity:.85;filter:drop-shadow(2px 2px 0 rgba(0,0,0,.5))}
+#vf i:nth-child(1){left:0;top:0;border-right:0;border-bottom:0}#vf i:nth-child(2){right:0;top:0;border-left:0;border-bottom:0}
+#vf i:nth-child(3){left:0;bottom:0;border-right:0;border-top:0}#vf i:nth-child(4){right:0;bottom:0;border-left:0;border-top:0}
+#vf .vbar{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:8px;pointer-events:auto}
+#flash{position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:7}
+#shot{position:fixed;right:14px;bottom:14px;width:min(300px,62vw);display:none;z-index:6}
+#shot img{width:100%;display:block;image-rendering:pixelated;border:2px solid rgba(255,255,255,.2);margin-bottom:8px}
+#shot p{margin:0 0 8px;font-size:14px}#shot .row{display:flex;gap:8px}#shot a.b{display:inline-flex;align-items:center;text-decoration:none}
 button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2px}
 #err{position:fixed;inset:0;display:none;place-items:center;text-align:center;padding:24px}
 @media(max-width:760px){
@@ -87,12 +106,19 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
     <button class="b" id="orbit" aria-pressed="true">Orbit</button>
     <button class="b" id="pov" aria-pressed="false" title="Walk around the forest in first person (V)">POV mode</button>
     <button class="b" id="snd" aria-pressed="false" title="Forest sounds (M)">Sound</button>
+    <button class="b" id="jbtn" aria-pressed="false" title="Field journal (J)">Journal</button>
+    <button class="b" id="pbtn" aria-pressed="false" title="Photo mode (P)">Photo</button>
     <label class="px">Pixel size <input type="range" id="pxs" min="1" max="8" step="1" value="2"></label>
     <span class="hint" id="hint">Drag to look around · scroll to zoom</span>
   </nav>
 </div>
 <div id="cross" aria-hidden="true"></div>
-<div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV</div>
+<div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV<br><b>E</b> pick berries · <b>Q</b> skip a stone · <b>X</b> sit still · <b>J</b> journal · <b>P</b> photo</div>
+<section class="card" id="journal" aria-label="Field journal"><header><h2>Field journal</h2><span class="hint" id="jc"></span><button class="b" id="jx">Close</button></header><p class="hint" style="margin:0 0 6px">Walk the forest in POV mode to fill it in: look at animals for a moment, find their signs, and try things out.</p><ul id="jl"></ul></section>
+<div class="card" id="toast" role="status" aria-live="polite"></div>
+<div id="vf" aria-hidden="true"><i></i><i></i><i></i><i></i><div class="vbar"><button class="b" id="snapb">Take photo</button><button class="b" id="vfx">Done</button></div></div>
+<div id="flash"></div>
+<section class="card" id="shot" aria-label="Last photo"><img id="shotimg" alt="Your last photo of the forest"><p id="shotcap"></p><div class="row"><a class="b" id="shotsave" download>Save</a><button class="b" id="shotx">Close</button></div></section>
 <div id="err">WebGL is not available in this browser, so the forest cannot be drawn.</div>
 <script type="module">
 import * as THREE from 'three';
@@ -1139,7 +1165,7 @@ document.querySelectorAll('[data-sp]').forEach(b=>b.addEventListener('click',()=
 $('orbit').addEventListener('click',()=>{controls.autoRotate=!controls.autoRotate;$('orbit').setAttribute('aria-pressed',controls.autoRotate)});
 $('orbit').setAttribute('aria-pressed',controls.autoRotate);
 $('pxs').addEventListener('input',e=>{pxSize=+e.target.value;resize()});
-addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov){e.preventDefault();$('pause').click()}});
+addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov&&!photoOn){e.preventDefault();$('pause').click()}});
 
 // ---------- POV mode: walk the forest in first person ----------
 // Column tops for collision: terrain height, plus trees (tall, solid), rocks (their real tops) and logs/stumps.
@@ -1168,21 +1194,25 @@ function setPov(on){
     const[x,z]=spawnPoint();player.pos.set(x,Math.max(cellH(x,z),SURF-1),z);vy=0;
     yaw=Math.atan2(x,z);pitch=-.05; // face the middle of the hollow
     camera.fov=72;camera.near=.05;lockPointer();
-    $('hint').textContent='Click the forest to look · WASD move · Space jump · Shift sneak · V leave';
+    $('hint').textContent='Click the forest to look · WASD move · Space jump · Shift sneak · E Q X interact · V leave';
     log('You step into the forest')}
   else{document.exitPointerLock?.();camera.fov=40;camera.near=.5;camera.position.copy(saved.pos);controls.target.copy(saved.tgt);camera.up.set(0,1,0);camera.lookAt(saved.tgt);
-    $('hint').textContent='Drag to look around · scroll to zoom'}
+    $('hint').textContent='Drag to look around · scroll to zoom';povExit()}
   camera.updateProjectionMatrix()}
 $('pov').addEventListener('click',e=>{setPov(!pov);e.currentTarget.blur()});
 function lockPointer(){try{const r=canvas.requestPointerLock?.();r?.catch?.(()=>{})}catch(e){}}
-canvas.addEventListener('click',()=>{if(pov&&document.pointerLockElement!==canvas)lockPointer()});
+canvas.addEventListener('click',()=>{if(photoOn&&pov&&document.pointerLockElement===canvas){snap();return}if(pov&&document.pointerLockElement!==canvas)lockPointer()});
 document.addEventListener('pointerlockchange',()=>{document.body.classList.toggle('locked',document.pointerLockElement===canvas);keys.clear()});
 document.addEventListener('mousemove',e=>{if(!pov||document.pointerLockElement!==canvas)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
 addEventListener('keydown',e=>{
   if(e.target!==document.body&&e.target!==canvas&&!(e.target instanceof HTMLButtonElement))return;
   if(e.code==='KeyV'&&!e.repeat){setPov(!pov);return}
   if(e.code==='KeyM'&&!e.repeat){setSound(!SND.on);return}
+  if(e.code==='KeyJ'&&!e.repeat){toggleJournal();return}
+  if(e.code==='KeyP'&&!e.repeat){setPhoto(!photoOn);return}
+  if(photoOn&&(e.code==='Space'||e.code==='Enter')){e.preventDefault();if(!e.repeat)snap();return}
   if(!pov)return;
+  if(!e.repeat){if(e.code==='KeyE')pickBerry();else if(e.code==='KeyQ')skipStone();else if(e.code==='KeyX')setSit(!sitting)}
   if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
   if(e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
   keys.add(e.code)});
@@ -1195,7 +1225,7 @@ function updatePlayer(dt){
   const sneak=k('ShiftLeft')||k('ShiftRight');if(k('ControlLeft')||k('ControlRight'))sprint=fw>0;if(fw<=0)sprint=false;
   const P=player.pos,inWater=P.y<SURF-.3&&isWater(P.x,P.z);
   let sp=sneak?1.3:sprint?5.6:4.3;if(inWater)sp*=.55;
-  player.stalk=sneak;
+  if(sitting&&(fw||st||k('Space')))setSit(false);player.stalk=sneak||sitting;
   let mx=0,mz=0;if(fw||st){const l=Math.hypot(fw,st),sx=Math.sin(yaw),cz=Math.cos(yaw);mx=(-sx*fw+cz*st)/l*sp*dt;mz=(-cz*fw-sx*st)/l*sp*dt}
   // horizontal moves, one axis at a time; small ledges (≤0.6) are stepped up, like slabs and paths
   const lim=onGround?STEP:.01,B=HALF-PR-.05;
@@ -1213,7 +1243,7 @@ function updatePlayer(dt){
   const moving=(fw||st)&&onGround;bob=moving?bob+dt*sp*2.2:bob*.85;
   if(moving){stepAcc+=dt*sp;if(stepAcc>.85){stepAcc=0;footprint(P.x,P.z,Math.atan2(mx,mz),.13,pfs=-pfs);wearCell(cellOf(P.x,P.z),.03);sfx('step',undefined,undefined,0,surfaceAt(P))}}
   if(onGround&&!wasGround&&lastVy<-4)sfx('step',undefined,undefined,0,surfaceAt(P));wasGround=onGround;lastVy=vy;
-  camera.position.set(P.x,P.y+(sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
+  camera.position.set(P.x,P.y+(sitting?EYE-.8:sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
   camera.rotation.set(pitch,yaw,0,'YXZ');
 }
 
@@ -1393,8 +1423,8 @@ for(const e of animals)if(e.type==='rabbit')joinWarren(e);
 const MARKN=40,markMesh=new THREE.InstancedMesh(box1,lamW(),MARKN*3);markMesh.frustumCulled=false;scene.add(markMesh);
 for(let k=0;k<MARKN*3;k++){markMesh.setMatrixAt(k,Z);markMesh.setColorAt(k,WHITE)}
 const marks=new Array(MARKN).fill(null);let markI=0;const CLAWC=C('#e0cfae'),RUBC=C('#d6be8c');
-function treeMark(T,x,z,kind){if(T.st!=='alive'||T.g<1)return;const k=markI;markI=(markI+1)%MARKN;marks[k]={T,kind};
-  const dx=x-T.x,dz=z-T.z,ax=Math.abs(dx)>Math.abs(dz),nx=ax?Math.sign(dx):0,nz=ax?0:Math.sign(dz),o=.575;
+function treeMark(T,x,z,kind){if(T.st!=='alive'||T.g<1)return;const k=markI;markI=(markI+1)%MARKN;marks[k]={T,kind,x:0,y:0,z:0};
+  const dx=x-T.x,dz=z-T.z,ax=Math.abs(dx)>Math.abs(dz),nx=ax?Math.sign(dx):0,nz=ax?0:Math.sign(dz),o=.575;Object.assign(marks[k],{x:T.x+nx*o,y:T.base+(kind==='rub'?.7:1.5),z:T.z+nz*o});
   for(let q=0;q<3;q++){const n=k*3+q;
     if(kind==='rub'&&q>0){markMesh.setMatrixAt(n,Z);continue}
     const off=kind==='rub'?0:(q-1)*.1,y=T.base+(kind==='rub'?rr(.55,.8):1.45+q*.06+rr(-.05,.05)),w=kind==='rub'?.26:.035,hgt=kind==='rub'?.42:.5;
@@ -1438,6 +1468,115 @@ function updateFire(dt,s){
     flMesh.setColorAt(k,tc.copy(FLY).lerp(FLR,p.ember?.4:f))}
   flMesh.instanceMatrix.needsUpdate=flMesh.instanceColor.needsUpdate=true}
 
+// ---------- field journal, POV interactions and photo mode ----------
+const JE={ // name, note once found, hint while unknown
+  rabbit:['Cottontail rabbit','Busiest at dawn and dusk. When a fox closes in it bolts for the nearest burrow.','An animal'],
+  fox:['Red fox','Sleeps by day near its earth and patrols at night, creeping low before it pounces.','An animal'],
+  deer:['White-tailed deer','Moves as a herd between grazing grounds; bucks grow antlers through summer.','An animal'],
+  bear:['Black bear','Rakes berries off bushes, digs for grubs and sleeps the winter away in its den.','An animal'],
+  bird:['Songbird','Flits between treetops and sings most at dawn.','An animal'],
+  duck:['Mallard','Dabbles on the pond, tail up and head under.','An animal'],
+  squirrel:['Grey squirrel','Buries acorns in autumn and digs some back up in winter. The forgotten ones sprout.','An animal'],
+  wolf:['Grey wolf','Arrives when deer are plentiful and hunts as a pack. Shy of people.','An animal'],
+  butterfly:['Butterfly','Out on warm days, settling on flowers.','A small creature'],
+  dragonfly:['Dragonfly','Hawks for insects low over the water in summer.','A small creature'],
+  fish:['Leaping fish','Jumps for flies at dawn and dusk.','A small creature'],
+  tracks:['Tracks in the snow','Each animal leaves its own trail. New snow fills them in.','A sign'],
+  burrow:['Rabbit warren','The warren gets new entrances as the colony grows.','A sign'],
+  den:['Fox earth','A family of foxes lives here; look for it near where they sleep.','A sign'],
+  claw:['Bear claw marks','Pale scratches where a bear reared up against the trunk.','A sign'],
+  rub:['Buck rub','Bark rubbed raw where a buck cleaned the velvet from its antlers.','A sign'],
+  log:['Mossy fallen log','A dead tree that toppled; moss creeps over it as it rots.','A sign'],
+  snag:['Burnt snag','A tree killed by wildfire, still standing.','A sign'],
+  sapling:['Sapling','A young tree filling a gap left by an old one.','A sign'],
+  seedling:['Acorn seedling','Sprouted from an acorn a squirrel buried and forgot.','A sign'],
+  fire:['Wildfire','Lightning after a dry spell. The ground greens up again within a year.','An event'],
+  berries:['Wild berries','Ripe from midsummer into autumn. Bears love them too.','Something to try'],
+  stone:['Stone skipping','A flat throw skips more.','Something to try'],
+  calm:['Sitting still','Animals stop fearing you after a while and may wander close.','Something to try'],
+  photo:['Photographs','Animals you photograph are marked in the journal.','Something to try']};
+const NAME1={rabbit:'rabbit',fox:'fox',deer:'deer',bear:'black bear',bird:'songbird',duck:'mallard',squirrel:'squirrel',wolf:'wolf'},
+  NAMEN={rabbit:'rabbits',fox:'foxes',deer:'deer',bear:'black bears',bird:'songbirds',duck:'mallards',squirrel:'squirrels',wolf:'wolves'};
+const JKEY='ashwood-journal-v1';let JD={};try{JD=JSON.parse(localStorage.getItem(JKEY))||{}}catch(e){JD={}}
+let toastT=0,jOpen=false,saveT=0;
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('on');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('on'),2800)}
+function saveJ(){clearTimeout(saveT);saveT=setTimeout(()=>{try{localStorage.setItem(JKEY,JSON.stringify(JD))}catch(e){}},500)}
+function record(id,v=1,best){const e=JD[id]||(JD[id]={n:0,t:stamp()});const fresh=!e.n;e.n+=v;
+  if(best!==undefined)e.best=id==='calm'?Math.min(e.best??99,best):Math.max(e.best??0,best);
+  if(fresh){toast(`New journal entry: ${JE[id][0]} (J to open)`);sfx('pop')}saveJ();if(jOpen)renderJ()}
+function detail(id,e){if(id==='berries')return`picked ${e.n}`;if(id==='stone')return`best throw: ${e.best} skip${e.best===1?'':'s'}`;
+  if(id==='calm')return`closest: ${e.best.toFixed(1)} m`;if(id==='photo')return`${e.n} taken`;
+  return(NAME1[id]?`seen ${e.n}`:`found ${e.n}`)+(e.ph?' · photographed':'')}
+function renderJ(){const ids=Object.keys(JE);let have=0;const ul=$('jl');ul.textContent='';
+  for(const id of ids){const e=JD[id],j=JE[id],li=document.createElement('li'),b=document.createElement('b'),n=document.createElement('span');n.className='jn';
+    if(e&&e.n){have++;b.textContent=j[0];n.textContent=`${detail(id,e)} · first: ${e.t}`;li.append(b,n,j[1])}else{li.className='unk';b.textContent='???';n.textContent=j[2];li.append(b,n)}
+    ul.append(li)}
+  $('jc').textContent=`${have} of ${ids.length} found`}
+function toggleJournal(on=!jOpen){jOpen=on;document.body.classList.toggle('jopen',on);$('jbtn').setAttribute('aria-pressed',on);if(on)renderJ()}
+$('jbtn').addEventListener('click',e=>{toggleJournal();e.currentTarget.blur()});$('jx').addEventListener('click',()=>toggleJournal(false));
+// what the walker is looking at: within range and close to the centre of view (no occlusion test; cheap)
+const fwd=new THREE.Vector3();
+function inView(x,y,z,maxD,cosA=.9){const c=camera.position,dx=x-c.x,dy=y-c.y,dz=z-c.z,d=Math.hypot(dx,dy,dz);return d<maxD&&d>.01&&(dx*fwd.x+dy*fwd.y+dz*fwd.z)/d>cosA}
+let jT=0,sgT=0,trackDay=-1,fireSeen=false,sitting=false,sitT=0,apT=0,sitId=0;
+function povTick(dt){
+  stoneTick(dt);
+  if(sitting){sitT+=dt;player.calm=sitT>3;
+    if(player.calm&&(apT-=dt)<=0){apT=rr(1.5,3.5);const P=player.pos,c=[]; // curious animals wander over
+      for(const e of animals){if(!e.alive||e.hidden||e.target||(e.fear||0)>0||(e.type!=='rabbit'&&e.type!=='deer')||mom(e))continue;const d=Math.hypot(e.pos.x-P.x,e.pos.z-P.z);if(d<18&&d>4)c.push(e)}
+      if(c.length){const e=pick2(c),a=Math.atan2(e.pos.x-P.x,e.pos.z-P.z)+rr(-.6,.6),r=rr(1.8,3.2),x=P.x+Math.sin(a)*r,z=P.z+Math.cos(a)*r;if(walk(x,z)){e.target={x,z};e.tsp=.7}}}}
+  if((jT-=dt)>0)return;jT=.25;camera.getWorldDirection(fwd);const P=player.pos;
+  for(const e of animals){if(!e.alive||e.hidden)continue;
+    if(sitting&&player.calm&&e.calmId!==sitId&&e.type!=='bird'){const d=Math.hypot(e.pos.x-P.x,e.pos.z-P.z);if(d<3.6){e.calmId=sitId;record('calm',1,d)}}
+    if(e.jSeen)continue;if(inView(e.pos.x,e.pos.y+.4,e.pos.z,e.type==='bird'?16:24)){if((e.seenT=(e.seenT||0)+.25)>=1){e.jSeen=1;record(e.type)}}}
+  for(const b of bugs)if(b.on&&!b.js&&inView(b.x,b.y,b.z,7,.85)){b.js=1;record(b.dr?'dragonfly':'butterfly')}
+  for(const f of fish)if(f.on&&!f.js&&inView(f.x,W,f.z,22,.8)){f.js=1;record('fish')}
+  if((sgT-=.25)>0)return;sgT=1; // signs, once a second
+  for(const h of holeSlots)if(h&&!h.js&&inView(h.x,groundY(h.x,h.z),h.z,10,.85)){h.js=1;record(dens.includes(h)?'den':'burrow')}
+  for(const m of marks)if(m&&!m.js&&inView(m.x,m.y,m.z,7,.85)){m.js=1;record(m.kind)}
+  const day=Math.floor(simDays);if(prLive&&trackDay!==day){const a=prMesh.instanceMatrix.array;for(let k=0;k<PRN;k++)if(prT[k]>=0&&inView(a[k*16+12],a[k*16+13],a[k*16+14],7,.8)){trackDay=day;record('tracks');break}}
+  for(const T of trees){if(T.js===T.st)continue;const near=inView(T.x,T.base+1,T.z,12,.85);if(!near)continue;
+    if(T.st==='log'){T.js='log';record('log')}else if(T.st==='snag'&&T.char>.5){T.js='snag';record('snag')}else if(T.st==='alive'&&T.g<.7){T.js='alive';record('sapling')}}
+  for(const q of seeds)if(!q.js&&inView(q.x,groundY(q.x,q.z)+.2,q.z,6,.8)){q.js=1;record('seedling')}
+  if(!fireList.length)fireSeen=false;else if(!fireSeen&&inView(fireCx,groundY(fireCx,fireCz)+1,fireCz,45,.75)){fireSeen=true;record('fire')}}
+function povExit(){if(sitting)setSit(false);player.calm=false;if(stone){stone=null;stoneM.visible=false}}
+function setSit(on){sitting=on;sitT=0;player.calm=false;if(on){sitId++;toast('You sit down quietly. Keep still and the animals may come closer.')}}
+// berries: pick the nearest ripe cluster in front of you
+function pickBerry(){camera.getWorldDirection(fwd);const c=camera.position;let best=null,bd=2.8;
+  for(const f of berries.items){if(!f.vis)continue;const dx=f.x-c.x,dy=f.y-c.y,dz=f.z-c.z,d=Math.hypot(dx,dy,dz);if(d<bd&&(dx*fwd.x+dy*fwd.y+dz*fwd.z)/d>.7){bd=d;best=f}}
+  if(!best){toast('No ripe berries within reach');return}
+  let n=0;for(const f of berries.items)if(f.vis&&Math.hypot(f.x-best.x,f.z-best.z)<.7&&n<3){hideItem(berries,f.k);n++}
+  sfx('pop',best.x,best.z,10);record('berries',n);toast(`You pick ${n===1?'a berry':n+' berries'}`)}
+// skipping stones: a flat throw at the water bounces several times, leaving a row of rings
+const stoneM=new THREE.Mesh(box1,new THREE.MeshLambertMaterial({color:'#8a8d90'}));stoneM.scale.set(.15,.05,.12);stoneM.visible=false;scene.add(stoneM);
+let stone=null;
+function skipStone(){if(stone)return;camera.getWorldDirection(fwd);const P=player.pos,L=Math.hypot(fwd.x,fwd.z)||1,dx=fwd.x/L,dz=fwd.z/L;
+  let d0=0;for(let d=1.5;d<14;d+=.5)if(isWater(P.x+dx*d,P.z+dz*d)){d0=d;break}
+  if(!d0){toast('Face the pond to skip a stone');return}
+  if(iceAmt(season())>.4){toast('The pond is frozen over');return}
+  const flat=1-Math.min(1,Math.abs(fwd.y+.05)*2.5),n=Math.max(1,Math.round(rr(.5,3)+flat*rr(1,5))),pts=[];let d=d0,step=Math.max(1.4,d0*.3);
+  for(let k=0;k<n;k++){const x=P.x+dx*d,z=P.z+dz*d;if(!isWater(x,z)){pts.push({x,z,land:true});break}pts.push({x,z});d+=step;step*=.74}
+  stone={pts,k:0,t:0,x0:P.x+dx*.4,y0:P.y+EYE-.35,z0:P.z+dz*.4,dur:.45};stoneM.visible=true}
+function stoneTick(dt){if(!stone)return;const S=stone,p=S.pts[S.k],y1=W-.1;S.t=Math.min(1,S.t+dt/S.dur);const t=S.t,hg=S.k?.3/S.k:.7;
+  stoneM.position.set(S.x0+(p.x-S.x0)*t,S.y0+(y1-S.y0)*t+4*hg*t*(1-t),S.z0+(p.z-S.z0)*t);stoneM.rotation.y+=dt*25;
+  if(t<1)return;
+  const last=S.k===S.pts.length-1;
+  if(p.land)sfx('thud',p.x,p.z,25);else{ripple(p.x,p.z,last?1.2:.8,1.3);sfx(last?'splash':'plip',p.x,p.z,30)}
+  if(!last){S.x0=p.x;S.y0=y1;S.z0=p.z;S.k++;S.t=0;S.dur=.34*Math.pow(.86,S.k);return}
+  const skips=S.pts.length-1;stoneM.visible=false;stone=null;record('stone',1,skips);toast(skips?`${skips} skip${skips>1?'s':''}!`:'Plop. Try a flatter throw.')}
+// photo mode: frames the view, hides the HUD and keeps the last shot to save
+let photoOn=false;
+function setPhoto(on){photoOn=on;document.body.classList.toggle('photo',on);$('pbtn').setAttribute('aria-pressed',on);if(on){$('shot').style.display='none';toast(pov?'Click or press Space to take a photo · P to leave':'Press Space or Take photo · P to leave')}}
+function snap(){renderFinal(season());let url;try{url=canvas.toDataURL('image/png')}catch(e){toast('This browser could not save the photo');return}
+  const fl=$('flash');fl.style.transition='none';fl.style.opacity=.85;void fl.offsetWidth;fl.style.transition='opacity .45s';fl.style.opacity=0;sfx('shutter');
+  camera.getWorldDirection(fwd);const subj={};
+  for(const e of animals){if(!e.alive||e.hidden||!inView(e.pos.x,e.pos.y+.4,e.pos.z,30,.83))continue;subj[e.type]=(subj[e.type]||0)+1;if(!e.jSeen){e.jSeen=1;record(e.type)}JD[e.type].ph=1}
+  record('photo');const parts=Object.entries(subj).map(([t,n])=>n>1?`${n} ${NAMEN[t]}`:`a ${NAME1[t]}`);
+  const cap=parts.length?'Photo of '+(parts.length>1?parts.slice(0,-1).join(', ')+' and '+parts.at(-1):parts[0]):'A quiet corner of the forest';
+  $('shotimg').src=url;$('shotcap').textContent=`${cap} · ${stamp()}`;const a=$('shotsave');a.href=url;a.download=`ashwood-hollow-${Date.now()}.png`;$('shot').style.display='block'}
+$('pbtn').addEventListener('click',e=>{setPhoto(!photoOn);e.currentTarget.blur()});
+$('snapb').addEventListener('click',e=>{snap();e.currentTarget.blur()});$('vfx').addEventListener('click',()=>setPhoto(false));
+$('shotx').addEventListener('click',()=>$('shot').style.display='none');
+
 function frame(){
   requestAnimationFrame(frame);
   const rdt=Math.min(clock.getDelta(),.1);tReal+=rdt;
@@ -1453,11 +1592,11 @@ function frame(){
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
   soundTick(rdt,s);
-  if(pov)updatePlayer(rdt);else controls.update();
+  if(pov){updatePlayer(rdt);povTick(rdt)}else controls.update();
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={controls,signs:{warrens,dens,marks,worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={controls,J:{povTick,isWater,get stone(){return stone},get JD(){return JD},record,pickBerry,skipStone,setSit,setPhoto,snap,toggleJournal,player,setPov},signs:{warrens,dens,marks,worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
