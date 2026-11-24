@@ -776,12 +776,12 @@ function updateSeasonVisuals(s,quiet){
 // ---------- sky ----------
 const SKY=[C('#9ed3f2'),C('#74bdf0'),C('#a9c6e2'),C('#c6d4e2')],NIGHT=C('#0a1230'),DUSK=C('#f39a6b'),RAINSKY=C('#7d8896');
 const sky=new THREE.Color(),sdir=new THREE.Vector3(),mdir=new THREE.Vector3(),SUNC=C('#fff4e2'),SUNLOW=C('#ffb070'),MOONC=C('#9fb4ff');
-let daylight=1;
+let daylight=1,sunEl=0,quality=2; // quality: 2 full, 1 reduced, 0 minimal (set by the frame-time governor)
 function seasonal(keys,s,o){const t=((s-.5)%4+4)%4,i=Math.floor(t),f=t-i;return o.copy(keys[i]).lerp(keys[(i+1)%4],f*f*(3-2*f))}
 function updateSky(s){
   const df=simDays%1,a=(df-.25)*Math.PI*2,el=Math.sin(a),tilt=.72+.28*Math.cos((s-1.5)/4*Math.PI*2);
   sdir.set(Math.cos(a)*.9,el*tilt,.45).normalize();mdir.set(-Math.cos(a)*.9,-el*.8,-.35).normalize();
-  daylight=sm(-.08,.25,el);const wet=weather.amt;
+  daylight=sm(-.08,.25,el);sunEl=el;const wet=weather.amt;
   seasonal(SKY,s,sky);sky.lerp(DUSK,(1-sm(0,.32,Math.abs(el)))*.45*(1-wet));sky.lerp(RAINSKY,wet*.6);
   const nsky=NIGHT.clone().lerp(sky,daylight);
   scene.background=nsky;scene.fog.color.copy(nsky);
@@ -802,7 +802,7 @@ function updateWeather(dt,s){
   wind=1.2+Math.sin(simT*.05)*.8;
   if(paused)return;
   const a=weather.amt;const T=pov?player.pos:controls.target;
-  if(a>.05&&weather.kind!=='clear'){const snow=weather.kind==='snow',n=(snow?220:480)*a*dt+Math.random();for(let k=0;k<Math.floor(n);k++)spawnP(snow?'snow':'rain',T.x+rr(-45,45),snow?rr(14,20):rr(18,24),T.z+rr(-45,45),snow?SNOW:RAINC)}
+  if(a>.05&&weather.kind!=='clear'){const snow=weather.kind==='snow',n=(snow?220:480)*a*dt*QMUL[quality]+Math.random();for(let k=0;k<Math.floor(n);k++)spawnP(snow?'snow':'rain',T.x+rr(-45,45),snow?rr(14,20):rr(18,24),T.z+rr(-45,45),snow?SNOW:RAINC)}
   if(s>2.3&&s<3&&decLeaves.length){const n=9*dt*Math.min(speed,4)+Math.random();for(let k=0;k<Math.floor(n);k++){const i=pick2(decLeaves),L=leaves[i];if(lv(L)){leafColor(L,s,tc);spawnP('leaf',L.x,L.y,L.z,tc)}}}
   if(s>.38&&s<.68&&cherryLeaves.length){const n=6*dt+Math.random();for(let k=0;k<Math.floor(n);k++){const L=leaves[pick2(cherryLeaves)];if(lv(L))spawnP('petal',L.x,L.y,L.z,PETAL)}}
 }
@@ -815,6 +815,66 @@ function updateFireflies(s){
     dummy.position.set(f.x+Math.sin(t*.4*f.sp+f.ph)*1.5,gy+.8+Math.sin(t*.7+f.ph)*.5,f.z+Math.cos(t*.3*f.sp+f.ph)*1.5);dummy.rotation.set(0,0,0);dummy.scale.setScalar(b>.3?1:0);dummy.updateMatrix();ffMesh.setMatrixAt(k,dummy.matrix)});
   ffMesh.instanceMatrix.needsUpdate=true;
 }
+
+// ---------- atmosphere: light shafts, mist, heat shimmer ----------
+const QMUL=[.45,.75,1];
+// light shafts: additive slabs slanting down from gaps in the canopy along the sun direction; each fades in and out on its own
+const RAYS=18,rayMat=new THREE.MeshBasicMaterial({color:'#fff0c0',transparent:true,opacity:0,blending:THREE.AdditiveBlending,depthWrite:false});
+const rayMesh=new THREE.InstancedMesh(box1,rayMat,RAYS);rayMesh.frustumCulled=false;rayMesh.visible=false;rayMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(rayMesh);
+const rays=[];for(let k=0;k<RAYS;k++){rays.push({age:0,life:0,x:0,y:0,z:0,w:1});rayMesh.setColorAt(k,WHITE)}
+const UPV=new THREE.Vector3(0,1,0),rq=new THREE.Quaternion(),rv=new THREE.Vector3(),rsc=new THREE.Vector3(),rm=new THREE.Matrix4();
+function focusPt(){return pov?player.pos:controls.target}
+function placeRay(r){const F=focusPt();r.age=0;r.life=rr(2.5,6);r.on=false;
+  for(let a=0;a<16;a++){const t=trees[Math.floor(Math.random()*trees.length)];if(t.dead||t.g<1)continue;if(Math.hypot(t.x-F.x,t.z-F.z)>(pov?22:34))continue;
+    r.x=t.x+rr(-2,2);r.z=t.z+rr(-2,2);r.y=t.base+t.th+rr(.5,2);r.w=rr(.5,1.3);r.on=true;return}}
+function updateRays(dt,s){
+  const amt=quality>0?daylight*(1-weather.amt)*(.45+.55*(1-sm(.25,.85,sunEl)))*clamp(.3+fol(s)):0;
+  rayMesh.visible=amt>.03;if(!rayMesh.visible)return;
+  rayMat.opacity=amt*(pov?.2:.1);rq.setFromUnitVectors(UPV,sdir);
+  for(let k=0;k<RAYS;k++){const r=rays[k];r.age+=dt;if(r.age>=r.life)placeRay(r);
+    if(!r.on){rayMesh.setMatrixAt(k,Z);continue}
+    const g=groundY(r.x,r.z),L=Math.min(28,Math.max(2,(r.y-g)/Math.max(.2,sdir.y))),f=Math.sin(Math.PI*r.age/r.life);
+    rv.set(r.x-sdir.x*L/2,r.y-sdir.y*L/2,r.z-sdir.z*L/2);rm.compose(rv,rq,rsc.set(r.w,L,r.w*.35));rayMesh.setMatrixAt(k,rm);rayMesh.setColorAt(k,tc.setScalar(f))}
+  rayMesh.instanceMatrix.needsUpdate=true;rayMesh.instanceColor.needsUpdate=true}
+// morning mist: low drifting banks over the pond, plus the fog pulling in around you
+const MISTN=40,mistMat=new THREE.MeshBasicMaterial({color:'#e8eef2',transparent:true,opacity:0,depthWrite:false});
+const mistMesh=new THREE.InstancedMesh(box1,mistMat,MISTN);mistMesh.frustumCulled=false;mistMesh.visible=false;mistMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(mistMesh);
+const pcx=cx(pond.i),pcz=cx(pond.j),mists=[];
+for(let k=0;k<MISTN;k++){const a=rr(0,6.28),d=Math.sqrt(Math.random())*(pond.r+4);mists.push({x:pcx+Math.cos(a)*d,z:pcz+Math.sin(a)*d,y:W+rr(.05,.8),sx:rr(3,7),sz:rr(3,6),sy:rr(.25,.55),v:rr(.6,1.2)})}
+const MISTC=C('#dfe6ea'),MISTN_C=C('#3a4558');let mistAmt=0;
+function updateMist(dt,s){
+  const d=tod(),time=d<.5?1-sm(.24,.37,d):.65*sm(.78,.95,d),sea=[.8,.5,1,.45][Math.floor(s)];
+  mistAmt=time*sea*(1-.4*weather.amt);
+  const m=mistAmt;scene.fog.near=150-(pov?138:60)*m;scene.fog.far=360-(pov?255:110)*m;
+  tc.copy(MISTN_C).lerp(MISTC,daylight);scene.fog.color.lerp(tc,m*.55);
+  mistMesh.visible=m>.03;if(!mistMesh.visible)return;
+  mistMat.opacity=.3*m;mistMat.color.copy(tc);
+  const R0=pond.r+5;
+  for(let k=0;k<MISTN;k++){const q=mists[k];q.x+=wind*.12*q.v*dt;if(q.x>pcx+R0)q.x=pcx-R0;
+    dummy.position.set(q.x,q.y+Math.sin(tReal*.3+k)*.08,q.z);dummy.rotation.set(0,0,0);dummy.scale.set(q.sx,q.sy,q.sz);dummy.updateMatrix();mistMesh.setMatrixAt(k,dummy.matrix)}
+  mistMesh.instanceMatrix.needsUpdate=true}
+// heat shimmer: on still summer middays the scene is drawn to a texture and redrawn with a small ripple that grows with distance
+const shimmer={amt:0,rt:null,mat:new THREE.ShaderMaterial({uniforms:{tD:{value:null},tZ:{value:null},uAmt:{value:0},uT:{value:0},cn:{value:.5},cf:{value:700}},
+  vertexShader:'varying vec2 vUv;void main(){vUv=uv;gl_Position=vec4(position.xy,0.,1.);}',
+  fragmentShader:`uniform sampler2D tD,tZ;uniform float uAmt,uT,cn,cf;varying vec2 vUv;
+   void main(){float d=texture2D(tZ,vUv).x;float z=d*2.-1.,L=d<1.?(2.*cn*cf)/(cf+cn-z*(cf-cn)):0.;float k=uAmt*smoothstep(12.,80.,L);
+    vec2 o=vec2(sin(vUv.y*150.+uT*7.)*.0017,cos(vUv.x*95.+uT*5.)*.0008)*k;gl_FragColor=texture2D(tD,vUv+o);
+    #include <colorspace_fragment>
+   }`,depthTest:false,depthWrite:false})};
+const qScene=new THREE.Scene(),qCam=new THREE.OrthographicCamera(-1,1,1,-1,0,1);qScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2,2),shimmer.mat));
+const dbs=new THREE.Vector2();
+function renderFinal(s){
+  const d=tod();shimmer.amt=quality>1?sm(1,1.25,s)*(1-sm(1.85,2.05,s))*sm(.38,.46,d)*(1-sm(.6,.68,d))*(1-weather.amt)*(pov?1:.45):0;
+  if(shimmer.amt<.02){renderer.render(scene,camera);return}
+  renderer.getDrawingBufferSize(dbs);
+  if(!shimmer.rt||shimmer.rt.width!==dbs.x||shimmer.rt.height!==dbs.y){shimmer.rt?.dispose();shimmer.rt=new THREE.WebGLRenderTarget(dbs.x,dbs.y,{depthTexture:new THREE.DepthTexture(dbs.x,dbs.y)});shimmer.rt.texture.minFilter=shimmer.rt.texture.magFilter=THREE.NearestFilter}
+  renderer.setRenderTarget(shimmer.rt);renderer.render(scene,camera);renderer.setRenderTarget(null);
+  const u=shimmer.mat.uniforms;u.tD.value=shimmer.rt.texture;u.tZ.value=shimmer.rt.depthTexture;u.uAmt.value=shimmer.amt;u.uT.value=tReal;u.cn.value=camera.near;u.cf.value=camera.far;
+  renderer.render(qScene,qCam)}
+// frame-time governor: backs off shadow refresh, particles and post effects when frames run long (never touches pixel size)
+let ftA=1/60,qT=0;
+function govern(rdt){if(document.hidden||rdt>=.1)return;ftA+=(rdt-ftA)*.05;qT+=rdt;
+  if(ftA>.026&&qT>3&&quality>0){quality--;qT=0}else if(ftA<.0145&&qT>10&&quality<2){quality++;qT=0}else if(qT>10)qT=0}
 
 // ---------- HUD ----------
 const POP=[['rabbit','Rabbits','#b08b62'],['fox','Red foxes','#d8682a'],['deer','White-tailed deer','#8b5a2b'],['bear','Black bears','#4a3020'],['bird','Songbirds','#c62828'],['duck','Mallards','#2f7a3a']];
@@ -941,11 +1001,13 @@ function frame(){
   prevS=s;
   // seasonal recolouring only when the season has actually moved (nothing at all while paused)
   visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.003)){updateSeasonVisuals(s,jumped);visS=s;visT=.12;jumped=false}
-  if((++shF&1)===0||jumped)renderer.shadowMap.needsUpdate=true;
-  updateSky(s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);
+  if((++shF%(4-quality))===0||jumped)renderer.shadowMap.needsUpdate=true;
+  updateSky(s);updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);govern(rdt);
+  WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
   if(pov)updatePlayer(rdt);else controls.update();
-  renderer.render(scene,camera);
+  updateRays(rdt,s);
+  renderFinal(s);
 }
 window.__dbg={renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
