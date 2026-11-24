@@ -570,7 +570,7 @@ const UPD={
     else{ // most active at dawn, dusk and through the night; sits tight at midday
       const act=twilight()?1:isNight()?.7:.3;
       if(e.target){if(stepTo(e,e.target.x,e.target.z,1.5,dt)){e.target=null;e.idle=rr(1.5,5)/act}}
-      else{e.mv=0;e.idle-=dt;e.look=(e.look||0)-dt;if(e.look<=0){e.up=!e.up;e.look=e.up?rr(.8,2.2):rr(3,8)}up=e.up?1:0;
+      else{e.mv=0;e.idle-=dt;e.look=(e.look||0)-dt;if(e.look<=0){e.up=!e.up;e.look=e.up?rr(.8,2.2):rr(3,8)}up=e.up?1:0;if(!e.up)e.gzT=.1;
         if(e.idle<=0){const far=Math.hypot(e.pos.x-e.home.x,e.pos.z-e.home.z)>7;e.target=far?randTarget(e.home.x,e.home.z,3):randTarget(e.pos.x,e.pos.z,2.4);e.idle=.5}}}
     e.phase+=dt*e.mv*4.2;const hop=e.mv>0?Math.abs(Math.sin(e.phase))*.28:0;
     const nib=e.mv===0&&!up?.12+Math.max(0,Math.sin(simT*9+e.phase))*.06:0;
@@ -611,7 +611,7 @@ const UPD={
       const gd=Math.hypot(e.pos.x-herd.gx,e.pos.z-herd.gz);
       if(bed&&!e.target){e.mv=0;lie=1;head=.3}
       else if(e.target){if(stepTo(e,e.target.x,e.target.z,e.tsp,dt)){e.target=null;e.idle=rr(3,9)}head=e.tsp>.8?.1:.9}
-      else{e.mv=0;e.idle-=dt;e.look=(e.look||0)-dt;if(e.look<=0){e.alert=!e.alert;e.look=e.alert?rr(1,2.5):rr(4,10)}head=e.alert?-.1:1.05;
+      else{e.mv=0;e.idle-=dt;e.look=(e.look||0)-dt;if(e.look<=0){e.alert=!e.alert;e.look=e.alert?rr(1,2.5):rr(4,10)}head=e.alert?-.1:1.05;if(!e.alert)e.gzT=.1;
         if(e.idle<=0){if(gd>6){e.target=randTarget(herd.gx,herd.gz,3.5);e.tsp=1.1}else{e.target=randTarget(e.pos.x,e.pos.z,1.6);e.tsp=.5}e.idle=.5}}}
     if(e.mv>3)bounce=Math.abs(Math.sin(e.phase))*.35; // bounding run
     e.phase+=dt*e.mv*(e.mv>3?2.4:3.4);swingLegs(e,e.mv>3?.8:.45);pose(e,dt,lie,bounce);
@@ -643,7 +643,7 @@ const UPD={
         if(!e.goal){const t=randTarget(e.pos.x,e.pos.z,12);e.goal=t?{x:t.x,z:t.z,kind:'dig'}:null}
         e.forage=0;e.gt=0}
       if(e.goal){
-        if(e.forage>0){e.mv=0;e.forage-=dt;head=.55;e.head.rotation.y=Math.sin(simT*1.6+e.phase)*.35;
+        if(e.forage>0){e.mv=0;e.forage-=dt;head=.55;if(e.goal.kind==='berries'&&Math.random()<dt*.5)eatBerry(e.goal.x,e.goal.z,1.8);e.head.rotation.y=Math.sin(simT*1.6+e.phase)*.35;
           if(e.standT>0){e.standT-=dt;stand=1;head=-.3}else if(Math.random()<dt*.03)e.standT=2.5; // rears up to sniff the air
           if(e.forage<=0)e.goal=null}
         else{e.gt+=dt;const arrived=stepTo(e,e.goal.x,e.goal.z,s>2?1.35:1.05,dt),near=Math.hypot(e.goal.x-e.pos.x,e.goal.z-e.pos.z)<2.2;
@@ -775,7 +775,7 @@ function migrate(e,inS,sp,dt){
 }
 
 function updateAnimals(dt,s){
-  simT+=dt;
+  simT+=dt;snowOn=snowAmt(s)>.03;
   for(const k in BY)BY[k].length=0;for(const a of animals)if(a.alive)(BY[a.type]||(BY[a.type]=[])).push(a);
   packTick(dt);
   const dr=BY.deer||NONE;if(dr.length){herd.x=dr.reduce((a,d)=>a+d.pos.x,0)/dr.length;herd.z=dr.reduce((a,d)=>a+d.pos.z,0)/dr.length}
@@ -786,7 +786,7 @@ function updateAnimals(dt,s){
     if(!e.alive)continue;
     UPD[e.type](e,dt,s);if(!e.alive)continue;
     if(e.grow<1){e.grow=Math.min(1,e.grow+dt/(GROW[e.type][1]*DAY));e.root.scale.setScalar(GROW[e.type][0]+(1-GROW[e.type][0])*e.grow)}
-    if(e.type!=='bird'&&e.type!=='duck'&&!e.climb){const gy=groundY(e.pos.x,e.pos.z);e.pos.y+=(gy-e.pos.y)*Math.min(1,dt*12)}
+    if(e.type!=='bird'&&e.type!=='duck'&&!e.climb){const gy=groundY(e.pos.x,e.pos.z);e.pos.y+=(gy-e.pos.y)*Math.min(1,dt*12);if(e.mv>0&&!e.hidden)trackAnimal(e,dt);if(e.gzT>0){e.gzT-=dt;grazeCell(cellOf(e.pos.x,e.pos.z),GRAZR[e.type]*dt)}}
     e.root.position.copy(e.pos);e.root.rotation.y=e.heading;
   }
   for(let k=animals.length-1;k>=0;k--)if(!animals[k].alive)animals.splice(k,1);
@@ -840,16 +840,16 @@ const GR={dry:C('#8d8a55'),sp:C('#74c44a'),su:C('#4e9a36'),au:C('#a69a42')};
 const gcol=new THREE.Color(),tc=new THREE.Color();
 function grassColor(s,o){return o.copy(GR.dry).lerp(GR.sp,sm(0,.45,s)).lerp(GR.su,sm(.55,1.3,s)).lerp(GR.au,sm(1.9,2.5,s)).lerp(GR.dry,sm(2.75,3.1,s))}
 const tca=terrain.instanceColor.array;
-let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454');
+let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454'),GRAZED=C('#a2a457');
 function paintTop(t){
-  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.wear>.02)tc.lerp(WORN,Math.min(1,t.wear)*.75)}else tc.copy(t.kind==='path'?PATH:SAND).multiplyScalar(t.jit);
+  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.graze>.1)tc.lerp(GRAZED,t.graze*.3);if(t.wear>.12)tc.lerp(WORN,Math.min(1,(t.wear-.12)/.7)*.72)}else tc.copy(t.kind==='path'?PATH:SAND).multiplyScalar(t.jit);
   if(t.burn>0)tc.lerp(CHARG,t.burn*.9);
   if(visSn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
   const o=t.idx*3;tca[o]=tc.r;tca[o+1]=tc.g;tca[o+2]=tc.b;topDirty=true}
 function updateSeasonVisuals(s,quiet){
   const sn=snowAmt(s),lt=litter(s),fo=fol(s);grassColor(s,gcol);
   visSn=sn;visLt=lt;for(const t of tops)paintTop(t);
-  terrain.instanceColor.needsUpdate=true;
+  terrain.instanceColor.needsUpdate=true;topDirty=false;
   WU.uS.value=s;WU.uFol.value=fo;WU.uSnow.value=sn;curFol=fo;
   setWindow(flowers,s);setWindow(shrooms,s);setWindow(berries,s);setWindow(cattails,s);
   bladeMat.color.copy(BL.dry).lerp(BL.sp,sm(0,.45,s)).lerp(BL.su,sm(.55,1.3,s)).lerp(BL.au,sm(1.9,2.5,s)).lerp(BL.dry,sm(2.75,3.1,s));
@@ -1209,7 +1209,7 @@ function updatePlayer(dt){
   if(inWater&&P.y>SURF-.3&&vy>0&&!k('Space'))vy=Math.min(vy,.5);
   // camera at eye height, with a little head bob when walking
   const moving=(fw||st)&&onGround;bob=moving?bob+dt*sp*2.2:bob*.85;
-  if(moving){stepAcc+=dt*sp;if(stepAcc>.85){stepAcc=0;sfx('step',undefined,undefined,0,surfaceAt(P))}}
+  if(moving){stepAcc+=dt*sp;if(stepAcc>.85){stepAcc=0;footprint(P.x,P.z,Math.atan2(mx,mz),.13,pfs=-pfs);wearCell(cellOf(P.x,P.z),.03);sfx('step',undefined,undefined,0,surfaceAt(P))}}
   if(onGround&&!wasGround&&lastVy<-4)sfx('step',undefined,undefined,0,surfaceAt(P));wasGround=onGround;lastVy=vy;
   camera.position.set(P.x,P.y+(sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
   camera.rotation.set(pitch,yaw,0,'YXZ');
@@ -1285,7 +1285,7 @@ const fireT=new Float32Array(N*N),fireList=[],scars=[],FIRE={yr:-2,burnt:0,rad:0
 let drought=0,flashT=0,cellDirty=false;
 const cellItems=new Map();for(const set of[flowers,shrooms,berries])set.items.forEach((f,k)=>{const c=Math.floor(f.x+HALF)*N+Math.floor(f.z+HALF);if(!cellItems.has(c))cellItems.set(c,[]);cellItems.get(c).push([set,k])});
 function hideItem(set,k){const f=set.items[k];f.gone=true;if(f.vis){f.vis=false;set.head.setMatrixAt(k,Z);set.stem.setMatrixAt(k,Z);set.head.instanceMatrix.needsUpdate=set.stem.instanceMatrix.needsUpdate=true}}
-function cellR(t){return Math.round(255*clamp(t.gr??1)*(1-Math.min(1,t.wear))*(1-.8*t.graze))}
+function cellR(t){return Math.round(255*clamp(t.gr??1)*(1-.85*clamp((t.wear-.1)/.6))*(1-.7*t.graze))}
 function setCell(t){const o=(t.j*N+t.i)*4;cellData[o]=cellR(t);cellData[o+2]=Math.round(t.burn*255);cellDirty=true}
 function fuel(c,s){if(fireT[c]>0)return 0;const t=topOf[c];if(!t||t.burn>.35||snowAmt(s)>t.snowR)return 0;
   const ti=treeAt[c];if(ti>=0){const T=trees[ti];return T.st==='alive'&&T.g>.3?(aliveTrees>150?1.3:0):T.st==='snag'?1:0}
@@ -1339,8 +1339,37 @@ function ecoDaily(s,kind){
   const yr=Math.floor(simDays/(4*DPS));
   if(!fireList.length&&drought>=7&&s>1.1&&s<2.6&&yr>=FIRE.yr+2&&Math.random()<.22)lightning(true);
   else if(kind==='rain'&&s>.6&&s<2.3&&Math.random()<.2)lightning(false); // a summer thunderstorm
-  lifeDaily(s);regrow(s);seedlings(s)}
-function ecoTick(dt){fireTick(dt,season());if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){terrain.instanceColor.needsUpdate=true;topDirty=false}}
+  lifeDaily(s);regrow(s);seedlings(s);wearDaily(s);
+  if(s<.2&&berryYr!==yr){berryYr=yr;for(const f of berries.items)if(!f.bush||(f.bush.st==='alive'&&f.bush.g>=.8))f.gone=false}}
+function ecoTick(dt){fireTick(dt,season());if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){const now=performance.now();if(now-topUpT>250){topUpT=now;terrain.instanceColor.needsUpdate=true;topDirty=false}}printsTick(dt)}
+// ---------- ground signs: worn game trails, grazed turf, berries eaten, footprints in snow ----------
+const cellOf=(x,z)=>Math.floor(x+HALF)*N+Math.floor(z+HALF);
+const WEARR={deer:.06,bear:.09,wolf:.04,fox:.02,rabbit:.012,squirrel:.006},GRAZR={deer:.12,rabbit:.08},
+  STRIDE={deer:.75,bear:.85,wolf:.7,fox:.55,rabbit:.6,squirrel:.35},PRSZ={deer:.11,bear:.24,wolf:.15,fox:.11,rabbit:.1,squirrel:.06};
+const worn=[];let topUpT=0,snowOn=false,pfs=1,berryYr=0;
+function touch(t){if(!t.wn){t.wn=1;worn.push(t)}const r=cellR(t);if(r!==t.cr){t.cr=r;setCell(t)}
+  const q=Math.round(t.wear*12)+Math.round(t.graze*6)*100;if(q!==t.pq){t.pq=q;paintTop(t)}}
+function wearCell(c,a){const t=topOf[c];if(t&&t.kind==='grass'){t.wear=Math.min(1.3,t.wear+a);touch(t)}}
+function grazeCell(c,a){const t=topOf[c];if(t&&t.kind==='grass'&&!(snowOn&&visSn>t.snowR)){t.graze=Math.min(1,t.graze+a);touch(t)}}
+function wearDaily(s){const grow=s<2.8,k=snowAmt(s)>.5?.995:.96;
+  for(let n=worn.length-1;n>=0;n--){const t=worn[n];t.wear*=k;if(t.wear<.04)t.wear=0;t.graze=Math.max(0,t.graze-(grow?.2:.03));touch(t);
+    if(!t.wear&&!t.graze){t.wn=0;worn[n]=worn[worn.length-1];worn.pop()}}}
+function trackAnimal(e,dt){const R0=STRIDE[e.type];if(R0===undefined)return;e.trk=(e.trk||0)+e.mv*dt;const st=R0*(e.grow<1?.7:1);if(e.trk<st)return;e.trk=0;
+  wearCell(cellOf(e.pos.x,e.pos.z),WEARR[e.type]*st);if(snowOn)footprint(e.pos.x,e.pos.z,e.heading,PRSZ[e.type]*(e.grow<1?.7:1),e.pf=-(e.pf||1))}
+function eatBerry(x,z,r){for(const f of berries.items)if(f.vis&&Math.abs(f.x-x)<r&&Math.abs(f.z-z)<r){hideItem(berries,f.k);return true}return false}
+// footprints: a ring of flat prints; they fill in under new snow and vanish when it melts
+const PRN=520,prMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#a9b4c6'}),PRN);prMesh.frustumCulled=false;prMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+for(let k=0;k<PRN;k++)prMesh.setMatrixAt(k,Z);scene.add(prMesh);
+const prT=new Float32Array(PRN).fill(-1),prC=new Int32Array(PRN);let prI=0,prLive=0,prDirty=false,prChk=0;const PQ=new THREE.Quaternion(),PE=new THREE.Euler();
+function footprint(x,z,hd,sz,side){const c=cellOf(x,z),t=topOf[c];if(!t||visSn<=t.snowR+.04||blocked[c])return;
+  const k=prI;prI=(prI+1)%PRN;if(prT[k]<0)prLive++;prT[k]=simDays;prC[k]=c;
+  const px=x+Math.cos(hd)*sz*.8*side,pz=z-Math.sin(hd)*sz*.8*side;
+  tm4.compose(tv.set(px,groundY(px,pz)+.012,pz),PQ.setFromEuler(PE.set(0,hd,0)),tsc.set(sz,.02,sz*1.35));prMesh.setMatrixAt(k,tm4);prDirty=true}
+function printsTick(dt){
+  if(prLive&&(prChk+=dt)>1){prChk=0;const fall=weather.kind==='snow'?weather.amt:0,life=2.5/(1+fall*6);
+    for(let k=0;k<PRN;k++)if(prT[k]>=0&&(simDays-prT[k]>life||visSn<=topOf[prC[k]].snowR)){prT[k]=-1;prLive--;prMesh.setMatrixAt(k,Z);prDirty=true}}
+  if(prDirty){prMesh.instanceMatrix.needsUpdate=true;prDirty=false}}
+
 // flames, embers and the glow they cast
 const FLN=320,flMesh=new THREE.InstancedMesh(box1,new THREE.MeshBasicMaterial({color:'#fff'}),FLN);flMesh.frustumCulled=false;flMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(flMesh);
 const fls=[];for(let k=0;k<FLN;k++){fls.push({on:false});flMesh.setMatrixAt(k,Z);flMesh.setColorAt(k,WHITE)}
@@ -1382,7 +1411,7 @@ function frame(){
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={controls,eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
+window.__dbg={controls,signs:{worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
