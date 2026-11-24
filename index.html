@@ -987,7 +987,7 @@ function updateFish(dt,s){
 function updateSmallLife(dt,s){
   if(paused)return;updateBugs(dt,s);updateFish(dt,s);
   if(weather.kind==='rain'&&weather.amt>.15&&waterCells.length){const n=weather.amt*14*dt*QMUL[quality]+Math.random();for(let k=0;k<Math.floor(n);k++){const[i,j]=pick2(waterCells);ripple(cx(i)+rr(-.5,.5),cx(j)+rr(-.5,.5),.35,.7)}}
-  updateRipples(dt)}
+  updateRipples(dt);ripMesh.visible=ripLive>0;bugMesh.visible=bugVis;fishMesh.visible=!!fishMesh.userData.was}
 
 // ---------- atmosphere: light shafts, mist, heat shimmer ----------
 const QMUL=[.45,.75,1];
@@ -1278,11 +1278,11 @@ function setTreeLook(T){ // charring and leaf loss go to the leaf shader; the tr
 const LOGN=28,logMesh=new THREE.InstancedMesh(box1,lamW(),LOGN),logMoss=new THREE.InstancedMesh(box1,mossMat,LOGN);
 for(const m of[logMesh,logMoss]){m.castShadow=m.receiveShadow=true;m.frustumCulled=false;for(let k=0;k<LOGN;k++)m.setMatrixAt(k,Z);scene.add(m)}
 for(let k=0;k<LOGN;k++)logMesh.setColorAt(k,WHITE);
-const logSlots=new Array(LOGN).fill(null);
+const logSlots=new Array(LOGN).fill(null);logMesh.visible=logMoss.visible=false;const logVis=()=>{logMesh.visible=logMoss.visible=logSlots.some(Boolean)};
 function placeLog(T){const k=logSlots.indexOf(null);if(k<0)return false;
   const len=Math.min(4,Math.max(2,T.th-1)),dirs=DIRS.slice().sort(()=>Math.random()-.5);
   for(const[dx,dz]of dirs){let ok=true;for(let q=1;q<=len;q++){const i=T.i+dx*q,j=T.j+dz*q;if(!inB(i,j)||H[i][j]!==T.base||blocked[i*N+j]||fireT[i*N+j]>0){ok=false;break}}
-    if(!ok)continue;T.log={k,dx,dz,len};logSlots[k]=T;
+    if(!ok)continue;T.log={k,dx,dz,len};logSlots[k]=T;logVis();
     for(let q=1;q<=len;q++){const c=(T.i+dx*q)*N+T.j+dz*q;blocked[c]=1;solidTop[c]=T.base+.7}return true}
   return false}
 function drawLog(T){const L=T.log,r=T.rot||0,mx=T.x+L.dx*(L.len+1)/2,mz=T.z+L.dz*(L.len+1)/2,ln=L.len+.3,t=.72-.14*r;
@@ -1291,7 +1291,7 @@ function drawLog(T){const L=T.log,r=T.rot||0,mx=T.x+L.dx*(L.len+1)/2,mz=T.z+L.dz
   const mw=Math.min(1,r*1.6);if(mw>.04){tm4.compose(tv.set(mx,T.base+t+.04,mz),Q0,tsc.set(L.dx?ln*.9*mw:t*.75,.09,L.dz?ln*.9*mw:t*.75));logMoss.setMatrixAt(L.k,tm4)}else logMoss.setMatrixAt(L.k,Z);
   logMesh.instanceMatrix.needsUpdate=logMoss.instanceMatrix.needsUpdate=logMesh.instanceColor.needsUpdate=true}
 function clearLog(T){const L=T.log;if(!L)return;logSlots[L.k]=null;logMesh.setMatrixAt(L.k,Z);logMoss.setMatrixAt(L.k,Z);logMesh.instanceMatrix.needsUpdate=logMoss.instanceMatrix.needsUpdate=true;
-  for(let q=1;q<=L.len;q++){const i=T.i+L.dx*q,j=T.j+L.dz*q,c=i*N+j;blocked[c]=0;solidTop[c]=H[i][j]}T.log=null}
+  for(let q=1;q<=L.len;q++){const i=T.i+L.dx*q,j=T.j+L.dz*q,c=i*N+j;blocked[c]=0;solidTop[c]=H[i][j]}T.log=null;logVis()}
 function killTree(T){if(!T.dead&&!T.bush)aliveTrees--;T.dead=true;T.st='snag';T.timer=rr(8,20);T.burnt=1;setTreeLook(T)}
 function clearCell(T){const c=T.i*N+T.j;if(!T.bush){blocked[c]=0;solidTop[c]=T.base}}
 function fellTree(T){
@@ -1356,10 +1356,10 @@ function regrow(s){ // burnt ground greens up again; the scorch fades over most 
     if(t.gr>.6)for(const[set,k]of cellItems.get(t.i*N+t.j)||NONE)if(set!==berries)set.items[k].gone=false;
     if(t.burn<=0&&t.gr>=1){t.scar=0;scars[n]=scars[scars.length-1];scars.pop()}}}
 // forgotten acorn caches sprout in spring; a gap in the canopy nearby lets one grow into a tree
-const SEEDN=40,seedMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#5fae3a'}),SEEDN*2);seedMesh.frustumCulled=false;for(let k=0;k<SEEDN*2;k++)seedMesh.setMatrixAt(k,Z);scene.add(seedMesh);
+const SEEDN=40,seedMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#5fae3a'}),SEEDN*2);seedMesh.frustumCulled=false;for(let k=0;k<SEEDN*2;k++)seedMesh.setMatrixAt(k,Z);seedMesh.visible=false;scene.add(seedMesh);
 const seeds=[];let seedYr=-1;
 function drawSeeds(){for(let k=0;k<SEEDN;k++){const q=seeds[k];if(!q){seedMesh.setMatrixAt(k*2,Z);seedMesh.setMatrixAt(k*2+1,Z);continue}const g=groundY(q.x,q.z);
-  tm4.compose(tv.set(q.x,g+.15,q.z),Q0,tsc.set(.05,.3,.05));seedMesh.setMatrixAt(k*2,tm4);tm4.compose(tv.set(q.x,g+.3,q.z),Q0,tsc.set(.26,.05,.12));seedMesh.setMatrixAt(k*2+1,tm4)}seedMesh.instanceMatrix.needsUpdate=true}
+  tm4.compose(tv.set(q.x,g+.15,q.z),Q0,tsc.set(.05,.3,.05));seedMesh.setMatrixAt(k*2,tm4);tm4.compose(tv.set(q.x,g+.3,q.z),Q0,tsc.set(.26,.05,.12));seedMesh.setMatrixAt(k*2+1,tm4)}seedMesh.instanceMatrix.needsUpdate=true;seedMesh.visible=seeds.length>0}
 function seedlings(s){const yr=Math.floor(simDays/(4*DPS));
   if(s>.1&&s<.5&&seedYr!==yr&&caches.length){seedYr=yr;let n=0,v=0;
     for(let k=caches.length-1;k>=0;k--){const c=caches[k];if(c.yr>=yr||Math.random()>.4)continue;caches.splice(k,1);
@@ -1373,7 +1373,7 @@ function ecoDaily(s,kind){
   else if(kind==='rain'&&s>.6&&s<2.3&&Math.random()<.2)lightning(false); // a summer thunderstorm
   lifeDaily(s);regrow(s);seedlings(s);wearDaily(s);signsDaily(s);
   if(s<.2&&berryYr!==yr){berryYr=yr;for(const f of berries.items)if(!f.bush||(f.bush.st==='alive'&&f.bush.g>=.8))f.gone=false}}
-function ecoTick(dt){fireTick(dt,season());if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){const now=performance.now();if(now-topUpT>250){topUpT=now;terrain.instanceColor.needsUpdate=true;topDirty=false}}printsTick(dt)}
+function ecoTick(dt){fireTick(dt,season());if(cellDirty||topDirty){const now=performance.now();if(now-topUpT>250){topUpT=now;if(cellDirty){cellTex.needsUpdate=true;cellDirty=false}if(topDirty){terrain.instanceColor.needsUpdate=true;topDirty=false}}}printsTick(dt)}
 // ---------- ground signs: worn game trails, grazed turf, berries eaten, footprints in snow ----------
 const cellOf=(x,z)=>Math.floor(x+HALF)*N+Math.floor(z+HALF);
 const WEARR={deer:.06,bear:.09,wolf:.04,fox:.02,rabbit:.012,squirrel:.006},GRAZR={deer:.12,rabbit:.08},
@@ -1391,7 +1391,7 @@ function trackAnimal(e,dt){const R0=STRIDE[e.type];if(R0===undefined)return;e.tr
 function eatBerry(x,z,r){for(const f of berries.items)if(f.vis&&Math.abs(f.x-x)<r&&Math.abs(f.z-z)<r){hideItem(berries,f.k);return true}return false}
 // footprints: a ring of flat prints; they fill in under new snow and vanish when it melts
 const PRN=520,prMesh=new THREE.InstancedMesh(box1,new THREE.MeshLambertMaterial({color:'#a9b4c6'}),PRN);prMesh.frustumCulled=false;prMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-for(let k=0;k<PRN;k++)prMesh.setMatrixAt(k,Z);scene.add(prMesh);
+for(let k=0;k<PRN;k++)prMesh.setMatrixAt(k,Z);prMesh.visible=false;scene.add(prMesh);
 const prT=new Float32Array(PRN).fill(-1),prC=new Int32Array(PRN);let prI=0,prLive=0,prDirty=false,prChk=0;const PQ=new THREE.Quaternion(),PE=new THREE.Euler();
 function footprint(x,z,hd,sz,side){const c=cellOf(x,z),t=topOf[c];if(!t||visSn<=t.snowR+.04||blocked[c])return;
   const k=prI;prI=(prI+1)%PRN;if(prT[k]<0)prLive++;prT[k]=simDays;prC[k]=c;
@@ -1400,7 +1400,7 @@ function footprint(x,z,hd,sz,side){const c=cellOf(x,z),t=topOf[c];if(!t||visSn<=
 function printsTick(dt){
   if(prLive&&(prChk+=dt)>1){prChk=0;const fall=weather.kind==='snow'?weather.amt:0,life=2.5/(1+fall*6);
     for(let k=0;k<PRN;k++)if(prT[k]>=0&&(simDays-prT[k]>life||visSn<=topOf[prC[k]].snowR)){prT[k]=-1;prLive--;prMesh.setMatrixAt(k,Z);prDirty=true}}
-  if(prDirty){prMesh.instanceMatrix.needsUpdate=true;prDirty=false}}
+  if(prDirty){prMesh.instanceMatrix.needsUpdate=true;prDirty=false;prMesh.visible=prLive>0}}
 
 // ---------- animal signs: rabbit warrens that grow with the colony, fox dens, bear claw marks, buck rubs ----------
 const HOLEN=64,holeMesh=new THREE.InstancedMesh(box1,lamW(),HOLEN*2);holeMesh.frustumCulled=false;holeMesh.receiveShadow=true;scene.add(holeMesh);
@@ -1421,7 +1421,7 @@ function boltHole(e,f){let best=null,bd=49;for(const w of warrens)for(const h of
 for(const e of animals)if(e.type==='rabbit')joinWarren(e);
 // claw marks and rubs: thin pale strips on the trunk face nearest the animal
 const MARKN=40,markMesh=new THREE.InstancedMesh(box1,lamW(),MARKN*3);markMesh.frustumCulled=false;scene.add(markMesh);
-for(let k=0;k<MARKN*3;k++){markMesh.setMatrixAt(k,Z);markMesh.setColorAt(k,WHITE)}
+for(let k=0;k<MARKN*3;k++){markMesh.setMatrixAt(k,Z);markMesh.setColorAt(k,WHITE)}markMesh.visible=false;
 const marks=new Array(MARKN).fill(null);let markI=0;const CLAWC=C('#e0cfae'),RUBC=C('#d6be8c');
 function treeMark(T,x,z,kind){if(T.st!=='alive'||T.g<1)return;const k=markI;markI=(markI+1)%MARKN;marks[k]={T,kind,x:0,y:0,z:0};
   const dx=x-T.x,dz=z-T.z,ax=Math.abs(dx)>Math.abs(dz),nx=ax?Math.sign(dx):0,nz=ax?0:Math.sign(dz),o=.575;Object.assign(marks[k],{x:T.x+nx*o,y:T.base+(kind==='rub'?.7:1.5),z:T.z+nz*o});
@@ -1429,7 +1429,7 @@ function treeMark(T,x,z,kind){if(T.st!=='alive'||T.g<1)return;const k=markI;mark
     if(kind==='rub'&&q>0){markMesh.setMatrixAt(n,Z);continue}
     const off=kind==='rub'?0:(q-1)*.1,y=T.base+(kind==='rub'?rr(.55,.8):1.45+q*.06+rr(-.05,.05)),w=kind==='rub'?.26:.035,hgt=kind==='rub'?.42:.5;
     tm4.compose(tv.set(T.x+nx*o+(ax?0:off),y,T.z+nz*o+(ax?off:0)),Q0,tsc.set(ax?.03:w,hgt,ax?w:.03));markMesh.setMatrixAt(n,tm4);markMesh.setColorAt(n,kind==='rub'?RUBC:CLAWC)}
-  markMesh.instanceMatrix.needsUpdate=markMesh.instanceColor.needsUpdate=true}
+  markMesh.instanceMatrix.needsUpdate=markMesh.instanceColor.needsUpdate=true;markMesh.visible=true}
 function signsDaily(s){
   // the warren grows as the colony does, and slowly falls in once it is abandoned
   const rab=BY.rabbit||NONE;for(const w of warrens)w.n=0;
@@ -1461,7 +1461,7 @@ function updateFire(dt,s){
   if(n){fireLight.position.set(fireCx,groundY(fireCx,fireCz)+3,fireCz);
     if(!paused){flAcc+=dt*Math.min(n,80)*10*QMUL[quality];while(flAcc>1){flAcc--;flameAt(pick2(fireList),Math.random()<.15)}
       smAcc+=dt*Math.min(n,40)*1.2*QMUL[quality];while(smAcc>1){smAcc--;const c=pick2(fireList),i=(c/N)|0,j=c%N,ti=treeAt[c];spawnP('smoke',cx(i)+rr(-.4,.4),(ti>=0?trees[ti].base+trees[ti].th:Math.max(H[i][j],W))+rr(.5,1.5),cx(j)+rr(-.4,.4),SMOKE)}}}
-  if(!flLive)return;
+  flMesh.visible=flLive>0;if(!flLive)return;
   for(let k=0;k<FLN;k++){const p=fls[k];if(!p.on)continue;p.t+=dt;const f=p.t/p.life;if(f>=1){p.on=false;flLive--;flMesh.setMatrixAt(k,Z);continue}
     p.y+=(p.ember?1.8:1.4)*dt;p.x+=(p.vx+wind*.35)*dt;
     dummy.position.set(p.x,p.y,p.z);dummy.rotation.set(0,f*3,0);const q=p.sz*(p.ember?1:1-f*.7);dummy.scale.set(q,p.ember?q:q*1.6,q);dummy.updateMatrix();flMesh.setMatrixAt(k,dummy.matrix);
@@ -1596,7 +1596,6 @@ function frame(){
   updateRays(rdt,s);
   renderFinal(s);
 }
-window.__dbg={controls,J:{povTick,isWater,get stone(){return stone},get JD(){return JD},record,pickBerry,skipStone,setSit,setPhoto,snap,toggleJournal,player,setPov},signs:{warrens,dens,marks,worn,prT,get prLive(){return prLive}},eco:{trees,bushes,fireList,ignite,lightning,killTree,fellTree,FIRE,lifeDaily,scars,logSlots,get drought(){return drought},set drought(v){drought=v},get alive(){return aliveTrees}},SND,pack,caches,bugs,ripple,renderer,scene,camera,updateAnimals,updateSeasonVisuals,updateParticles,season,animals,newDay,step(days){const h=.05;for(let t=0;t<days*DAY;t+=h){simDays+=h/DAY;updateAnimals(h,season());flocksTick(h);ecoTick(h);while(lastDay<Math.floor(simDays)){lastDay++;newDay()}}},setDays(d){simDays=d;lastDay=Math.floor(d);jumped=true},get simDays(){return simDays}}; //DBG
 frame();
 }
 </script>
