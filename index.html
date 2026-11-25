@@ -49,8 +49,8 @@ input[type=range]{width:96px;accent-color:var(--acc)}
 #cross{position:fixed;left:50%;top:50%;width:18px;height:18px;transform:translate(-50%,-50%);pointer-events:none;display:none;mix-blend-mode:difference}
 #cross::before,#cross::after{content:'';position:absolute;background:#fff}
 #cross::before{left:8px;top:0;width:2px;height:18px}#cross::after{top:8px;left:0;height:2px;width:18px}
-#povmsg{position:fixed;left:50%;top:58%;transform:translateX(-50%);pointer-events:none;display:none;background:var(--card);border:2px solid rgba(255,255,255,.13);box-shadow:4px 4px 0 rgba(0,0,0,.45);padding:10px 14px;text-align:center;font-size:14px;line-height:1.5}
-body.pov #cross{display:block}body.pov:not(.locked) #povmsg{display:block}
+#povmsg,#flymsg{position:fixed;left:50%;top:58%;transform:translateX(-50%);pointer-events:none;display:none;background:var(--card);border:2px solid rgba(255,255,255,.13);box-shadow:4px 4px 0 rgba(0,0,0,.45);padding:10px 14px;text-align:center;font-size:14px;line-height:1.5}
+body.fly:not(.locked) #flymsg{display:block}body.pov #cross{display:block}body.pov:not(.locked) #povmsg{display:block}
 body.pov #pop,body.pov #log,body.pov #top .strip{display:none}
 body.pov.locked .hud .card{opacity:.82}
 #journal{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(600px,92vw);max-height:80vh;overflow:auto;display:none;z-index:5}
@@ -107,6 +107,8 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
     <button class="b" id="pov" aria-pressed="false" title="Walk around the forest in first person (V)">POV mode</button>
     <button class="b" id="snd" aria-pressed="false" title="Forest sounds (M)">Sound</button>
     <button class="b" id="jbtn" aria-pressed="false" title="Field journal (J)">Journal</button>
+    <button class="b" id="daylock" aria-pressed="true" title="Keep it daytime (T)">Day only</button>
+    <button class="b" id="fly" aria-pressed="false" title="Fly around freely (F)">Fly mode</button>
     <button class="b" id="newb" title="Generate a new world">New world</button>
     <button class="b" id="pbtn" aria-pressed="false" title="Photo mode (P)">Photo</button>
     <label class="px">Pixel size <input type="range" id="pxs" min="1" max="8" step="1" value="2"></label>
@@ -114,6 +116,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
   </nav>
 </div>
 <div id="cross" aria-hidden="true"></div>
+<div id="flymsg">Click the forest to look around<br><b>WASD</b> fly · <b>Space</b> up · <b>Shift</b> down · <b>Ctrl</b> boost · <b>Scroll</b> speed<br><b>Esc</b> release mouse · <b>F</b> land · <b>P</b> photo</div>
 <div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV<br><b>E</b> pick berries · <b>Q</b> skip a stone · <b>X</b> sit still · <b>J</b> journal · <b>P</b> photo</div>
 <section class="card" id="journal" aria-label="Field journal"><header><h2>Field journal</h2><span class="hint" id="jc"></span><button class="b" id="jx">Close</button></header><p class="hint" style="margin:0 0 6px">Walk the forest in POV mode to fill it in: look at animals for a moment, find their signs, and try things out.</p><ul id="jl"></ul></section>
 <div class="card" id="toast" role="status" aria-live="polite"></div>
@@ -274,6 +277,9 @@ const DIRT=C('#7a5532'),STONE=C('#7d7f84'),SAND=C('#d6c08a'),WETSAND=C('#b29f70'
 const TINT={taiga:{c:C('#4f8a78'),a:.3},meadow:{c:C('#a6dc58'),a:.22},savanna:{c:C('#d4b75a'),a:.6},swamp:{c:C('#46683a'),a:.5},birch:{c:C('#a6d45a'),a:.15},cherry:{c:C('#86d472'),a:.15}};
 const ALPC0=C('#8d8f93'),DUNEC=C('#dcc48a'),MUDC=C('#6a5a3c');
 const ALP=19,tops=[],topOf=new Array(N*N).fill(null);
+const STRATA=['#7d7f84','#8b857b','#6e7378','#948c80','#777a82','#857f78'].map(C);
+function rockCol(y,i,j){const b=Math.floor((y+vnoise(i*.08+ox,j*.08+oz)*5)/1.5);return STRATA[((b%6)+6)%6].clone().multiplyScalar(R(.93,1.06))}
+const drop=(i,j)=>{let m=0;for(const[a,b]of[[1,0],[-1,0],[0,1],[0,-1]]){const nh=inB(i+a,j+b)?H[i+a][j+b]:H[i][j];m=Math.max(m,H[i][j]-nh)}return m};
 const SIDEC=C('#6e7a3e'),CH=16,NCH=Math.ceil(N/CH),chunkBuf=Array.from({length:NCH*NCH},()=>({p:[],n:[],c:[]}));
 function quad(B,c0,r,u,col,nx,ny,nz){ // c0 centre, r half-right, u half-up
   const P=[[c0[0]-r[0]-u[0],c0[1]-r[1]-u[1],c0[2]-r[2]-u[2]],[c0[0]+r[0]-u[0],c0[1]+r[1]-u[1],c0[2]+r[2]-u[2]],[c0[0]+r[0]+u[0],c0[1]+r[1]+u[1],c0[2]+r[2]+u[2]],[c0[0]-r[0]+u[0],c0[1]-r[1]+u[1],c0[2]-r[2]+u[2]]];
@@ -281,10 +287,10 @@ function quad(B,c0,r,u,col,nx,ny,nz){ // c0 centre, r half-right, u half-up
 for(let i=0;i<N;i++)for(let j=0;j<N;j++){
   const h=H[i][j],B=chunkBuf[Math.floor(i/CH)*NCH+Math.floor(j/CH)];
   if(h<W)quad(B,[cx(i),h,cx(j)],[.5,0,0],[0,0,-.5],WETSAND.clone().multiplyScalar(.86+vnoise(i*.3+ox,j*.3+oz)*.2),0,1,0);
-  else{const bb=bioOf(i,j,h);const t={idx:tops.length,kind:h===W?'sand':trail[i*N+j]||h>=ALP||bb==='desert'?'path':'grass',alp:h>=ALP,bb,fix:h>=ALP?ALPC0:trail[i*N+j]?null:bb==='desert'?DUNEC:(bb==='swamp'&&h===W)?MUDC:null,tint:TINT[bb]?TINT[bb].c:null,ta:TINT[bb]?TINT[bb].a:0,jit:.86+vnoise(i*.3+ox,j*.3+oz)*.2+R(-.03,.03),snowR:h>=ALP?R(.0,.12):bb==='desert'?1.2:clamp(R(.03,.95)-Math.max(0,h-9)*.05,.01,1),lit:0,litC:C(pick(['#b8642a','#c98a2e','#9c4a22','#d0a040'])),i,j,wear:0,graze:0,burn:0};tops.push(t);topOf[i*N+j]=t;cellData[(j*N+i)*4+1]=Math.min(255,Math.round(t.snowR*255))}
+  else{const bb=bioOf(i,j,h),dp=drop(i,j),rk=!trail[i*N+j]&&(h>=ALP||(h>=13&&dp>=2)||dp>=4);const t={idx:tops.length,kind:h===W?'sand':trail[i*N+j]||rk||bb==='desert'?'path':'grass',alp:h>=ALP,bb,fix:rk?rockCol(h,i,j):trail[i*N+j]?null:bb==='desert'?DUNEC:(bb==='swamp'&&h===W)?MUDC:null,tint:TINT[bb]?TINT[bb].c:null,ta:TINT[bb]?TINT[bb].a:0,jit:.86+vnoise(i*.3+ox,j*.3+oz)*.2+R(-.03,.03),snowR:h>=ALP?R(.0,.12):bb==='desert'?1.2:clamp(R(.03,.95)-Math.max(0,h-9)*.05,.01,1),lit:0,litC:C(pick(['#b8642a','#c98a2e','#9c4a22','#d0a040'])),i,j,wear:0,graze:0,burn:0};tops.push(t);topOf[i*N+j]=t;cellData[(j*N+i)*4+1]=Math.min(255,Math.round(t.snowR*255))}
   for(const[di,dj]of[[1,0],[-1,0],[0,1],[0,-1]]){const a=i+di,b=j+dj,nh=inB(a,b)?H[a][b]:0;
     for(let y=Math.max(0,nh);y<h;y++){
-      const col=y===h-1?(h<W?WETSAND:SIDEC).clone().multiplyScalar(R(.86,1)):(y>=h-3?DIRT:STONE).clone().multiplyScalar(R(.9,1.08));
+      const col=h>=W&&(h>=12||h-nh>=3||y<h-3)?rockCol(y,i,j):y===h-1?(h<W?WETSAND:SIDEC).clone().multiplyScalar(R(.86,1)):(y>=h-3?DIRT:STONE).clone().multiplyScalar(R(.9,1.08));
       quad(B,[cx(i)+di*.5,y+.5,cx(j)+dj*.5],[dj*.5,0,-di*.5],[0,.5,0],col,di,0,dj)}}
 }
 const sideMat=new THREE.MeshLambertMaterial({vertexColors:true});
@@ -309,9 +315,14 @@ const rockList=[];
 {const di=den.i,dj=den.j,hd=den.h;
  for(const[a,b,y]of[[-1,0,0],[1,0,0],[-1,1,0],[0,1,0],[1,1,0],[-1,0,1],[0,0,1],[1,0,1],[-1,1,1],[0,1,1],[1,1,1],[0,1,2]]){rockList.push([cx(di+a),hd+y+.5,cx(dj+b),1]);if(y===0)blocked[(di+a)*N+dj+b]=1}
  den.x=cx(di);den.z=cx(dj);den.ex=cx(di);den.ez=cx(dj-1)}
-for(let k=0;k<150;k++){const i=RI(2,N-3),j=RI(2,N-3);if(H[i][j]<=W||blocked[i*N+j]||Math.abs(i-den.i)<3&&Math.abs(j-den.j)<4)continue;const s=R(.45,.85);rockList.push([cx(i)+R(-.2,.2),H[i][j]+s/2,cx(j)+R(-.2,.2),s]);blocked[i*N+j]=1}
+for(let k=0;k<260;k++){const i=RI(2,N-3),j=RI(2,N-3);if(H[i][j]<=W||blocked[i*N+j]||Math.abs(i-den.i)<3&&Math.abs(j-den.j)<4)continue;
+  if(!(H[i][j]>=11||drop(i,j)>=2)&&rnd()>.3)continue; // boulders gather on rocky ground
+  const s=R(.5,.95),sy=R(.65,1),moss=H[i][j]<10?R(0,.4):0;
+  rockList.push([cx(i)+R(-.15,.15),H[i][j]+s*sy/2,cx(j)+R(-.15,.15),s*sy,R(0,1.57),R(-.5,.5),s*R(.9,1.35),s*R(.9,1.35),moss]);
+  for(let q=0,n=RI(0,2);q<n;q++){const t=s*R(.35,.6);rockList.push([cx(i)+R(-.38,.38),H[i][j]+t*.4,cx(j)+R(-.38,.38),t*.8,R(0,1.57),R(-.5,.5),t,t*R(.9,1.2),moss])}
+  blocked[i*N+j]=1}
 const rocks=new THREE.InstancedMesh(box1,lamW(),rockList.length);
-{const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();rockList.forEach((r,k)=>{m.compose(v.set(r[0],r[1],r[2]),q,sc.setScalar(r[3]));rocks.setMatrixAt(k,m);rocks.setColorAt(k,C('#80838a').multiplyScalar(R(.8,1.1)))})}
+{const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3(),eu=new THREE.Euler();rockList.forEach((r,k)=>{const sy=r[3];q.setFromEuler(eu.set((r[5]||0)*.25,r[4]||0,(r[5]||0)*.2));m.compose(v.set(r[0],r[1],r[2]),q,sc.set(r[6]||sy,sy,r[7]||sy));rocks.setMatrixAt(k,m);rocks.setColorAt(k,C('#80838a').multiplyScalar(R(.8,1.1)).lerp(C('#6f8a58'),r[8]||0))})}
 rocks.castShadow=rocks.receiveShadow=true;scene.add(rocks);
 
 // ---------- trees ----------
@@ -990,10 +1001,10 @@ function updateSeasonVisuals(s,quiet){
 // ---------- sky ----------
 const SKY=[C('#9ed3f2'),C('#74bdf0'),C('#a9c6e2'),C('#c6d4e2')],NIGHT=C('#0a1230'),DUSK=C('#f39a6b'),RAINSKY=C('#7d8896');
 const sky=new THREE.Color(),sdir=new THREE.Vector3(),mdir=new THREE.Vector3(),SUNC=C('#fff4e2'),SUNLOW=C('#ffb070'),MOONC=C('#9fb4ff');
-let daylight=1,sunEl=0,quality=2; // quality: 2 full, 1 reduced, 0 minimal (set by the frame-time governor)
+let dayLock=true,daylight=1,sunEl=0,quality=2; // quality: 2 full, 1 reduced, 0 minimal (set by the frame-time governor)
 function seasonal(keys,s,o){const t=((s-.5)%4+4)%4,i=Math.floor(t),f=t-i;return o.copy(keys[i]).lerp(keys[(i+1)%4],f*f*(3-2*f))}
 function updateSky(s){
-  const df=simDays%1,a=(df-.25)*Math.PI*2,el=Math.sin(a),tilt=.72+.28*Math.cos((s-1.5)/4*Math.PI*2);
+  const df=dayLock?.4:simDays%1,a=(df-.25)*Math.PI*2,el=Math.sin(a),tilt=.72+.28*Math.cos((s-1.5)/4*Math.PI*2);
   sdir.set(Math.cos(a)*.9,el*tilt,.45).normalize();mdir.set(-Math.cos(a)*.9,-el*.8,-.35).normalize();
   daylight=sm(-.08,.25,el);sunEl=el;const wet=weather.amt;
   seasonal(SKY,s,sky);sky.lerp(DUSK,(1-sm(0,.32,Math.abs(el)))*.45*(1-wet));sky.lerp(RAINSKY,wet*.6);
@@ -1096,7 +1107,7 @@ const RAYS=18,rayMat=new THREE.MeshBasicMaterial({color:'#fff0c0',transparent:tr
 const rayMesh=new THREE.InstancedMesh(box1,rayMat,RAYS);rayMesh.frustumCulled=false;rayMesh.visible=false;rayMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);scene.add(rayMesh);
 const rays=[];for(let k=0;k<RAYS;k++){rays.push({age:0,life:0,x:0,y:0,z:0,w:1});rayMesh.setColorAt(k,WHITE)}
 const UPV=new THREE.Vector3(0,1,0),rq=new THREE.Quaternion(),rv=new THREE.Vector3(),rsc=new THREE.Vector3(),rm=new THREE.Matrix4();
-function focusPt(){return pov?player.pos:controls.target}
+const flyFocus=new THREE.Vector3();function focusPt(){return pov?player.pos:fly?flyFocus.set(camera.position.x,6,camera.position.z):controls.target}
 function placeRay(r){const F=focusPt();r.age=0;r.life=rr(2.5,6);r.on=false;
   for(let a=0;a<16;a++){const t=trees[Math.floor(Math.random()*trees.length)];if(t.dead||t.g<1)continue;if(Math.hypot(t.x-F.x,t.z-F.z)>(pov?22:34))continue;
     r.x=t.x+rr(-2,2);r.z=t.z+rr(-2,2);r.y=t.base+t.th+rr(.5,2);r.w=rr(.5,1.3);r.on=true;return}}
@@ -1200,7 +1211,7 @@ function sfx(name,x,z,range,...a){if(!SND.on)return;const o=x===undefined?{pan:0
 function someone(type){const L=BY[type];if(!L||!L.length)return null;for(let k=0;k<6;k++){const a=L[Math.floor(Math.random()*L.length)];if(a.alive&&!a.hidden)return a}return null}
 function soundTick(rdt,s){
   if(!SND.on)return;SND.t-=rdt;if(SND.t>0)return;const dt=.1;SND.t=dt;
-  const c=SND.ctx,t=c.currentTime,d=tod(),night=isNight(),wet=weather.amt,rain=weather.kind==='rain'?wet:0,P=pov?1:.6;
+  const c=SND.ctx,t=c.currentTime,d=tod(),night=isNight()&&!dayLock,wet=weather.amt,rain=weather.kind==='rain'?wet:0,P=pov?1:.6;
   const set=(par,v)=>par.setTargetAtTime(v,t,.35);
   set(SND.wind.g.gain,(.05+.05*wind+.08*wet)*P);set(SND.wind.fl.frequency,260+wind*140+Math.sin(tReal*.7)*60);
   set(SND.rustle.g.gain,.022*wind*clamp(fol(s)+.25)*P);set(SND.rain.g.gain,.2*rain*(pov?1:.7));
@@ -1232,7 +1243,7 @@ const ACC=['#8fd35a','#f2c94c','#e0662a','#bfe3ff'];
 function updHud(s){
   const yr=Math.floor(simDays/(4*DPS))+1,si=Math.floor(s),f=s-si,ph=f<.33?'Early':f<.66?'Mid':'Late';
   $('when').textContent=`${ph} ${SEASONS[si]} · day ${Math.floor(simDays%DPS)+1} · year ${yr}`;
-  const df=simDays%1,hh=Math.floor(df*24),mm=Math.floor((df*24-hh)*60/10)*10;
+  const df=dayLock?.46:simDays%1,hh=Math.floor(df*24),mm=Math.floor((df*24-hh)*60/10)*10;
   const temp=Math.round(9.5+14.5*Math.cos((s-1.5)/4*Math.PI*2)+4*Math.sin((df-.35)*Math.PI*2)-weather.amt*2);
   const w=weather.amt<.15?(daylight<.2?'Clear night':'Clear'):weather.kind==='snow'?'Snowing':'Raining';
   $('sub').textContent=`${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} · ${temp}°C · ${fireList.length?w+' · Wildfire!':drought>=6&&s>1&&s<2.6?w+' · Dry spell':w}`;
@@ -1265,7 +1276,7 @@ document.querySelectorAll('[data-sp]').forEach(b=>b.addEventListener('click',()=
 $('orbit').addEventListener('click',()=>{controls.autoRotate=!controls.autoRotate;$('orbit').setAttribute('aria-pressed',controls.autoRotate)});
 $('orbit').setAttribute('aria-pressed',controls.autoRotate);
 $('pxs').addEventListener('input',e=>{pxSize=+e.target.value;resize()});
-addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov&&!photoOn){e.preventDefault();$('pause').click()}});
+addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov&&!fly&&!photoOn){e.preventDefault();$('pause').click()}});
 
 // ---------- POV mode: walk the forest in first person ----------
 // Column tops for collision: terrain height, plus trees (tall, solid), rocks (their real tops) and logs/stumps.
@@ -1277,7 +1288,7 @@ const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
 let stepAcc=0,wasGround=true,lastVy=0;
 function surfaceAt(P){const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),t=inB(i,j)?topOf[i*N+j]:null,s=season();
   if(isWater(P.x,P.z)&&iceAmt(s)<.5)return'water';if(P.y>cellH(P.x,P.z)+.3)return'wood';if(!t)return'path';if(snowAmt(s)>t.snowR)return'snow';if(t.lit*litter(s)>.3)return'leaves';return t.kind==='grass'?'grass':'path'}
-const keys=new Set();let pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
+const keys=new Set();let fly=false,flyV=new THREE.Vector3(),flySp=16,pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
 function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
@@ -1288,7 +1299,7 @@ function hits(x,z,feet,lim){ // does the footprint at (x,z) overlap a column tal
   return false}
 function spawnPoint(){for(let r=2;r<HALF;r++)for(let k=0;k<40;k++){const a=k/40*Math.PI*2,x=Math.round(Math.cos(a)*r)+.5,z=Math.round(Math.sin(a)*r)+.5;if(walk(x,z)&&!hits(x,z,cellH(x,z),.01))return[x,z]}return[.5,.5]}
 function setPov(on){
-  if(on===pov)return;pov=on;document.body.classList.toggle('pov',on);$('pov').setAttribute('aria-pressed',on);
+  if(on===pov)return;if(on&&fly)setFly(false);pov=on;document.body.classList.toggle('pov',on);$('pov').setAttribute('aria-pressed',on);
   controls.enabled=!on;player.hidden=!on;keys.clear();
   if(on){saved.pos.copy(camera.position);saved.tgt.copy(controls.target);
     const[x,z]=spawnPoint();player.pos.set(x,Math.max(cellH(x,z),SURF-1),z);vy=0;
@@ -1300,21 +1311,48 @@ function setPov(on){
     $('hint').textContent='Drag to look around · scroll to zoom';povExit()}
   camera.updateProjectionMatrix()}
 $('pov').addEventListener('click',e=>{setPov(!pov);e.currentTarget.blur()});
+const fsaved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
+function setFly(on){
+  if(on===fly)return;if(on&&pov)setPov(false);fly=on;document.body.classList.toggle('fly',on);$('fly').setAttribute('aria-pressed',on);
+  controls.enabled=!on;keys.clear();flyV.set(0,0,0);
+  if(on){fsaved.pos.copy(camera.position);fsaved.tgt.copy(controls.target);
+    const d=new THREE.Vector3();camera.getWorldDirection(d);yaw=Math.atan2(-d.x,-d.z);pitch=Math.asin(clamp(d.y,-1,1))*.8-.1;
+    camera.fov=68;camera.near=.3;controls.autoRotate=false;$('orbit').setAttribute('aria-pressed',false);lockPointer();
+    $('hint').textContent='WASD fly · Space up · Shift down · Ctrl boost · scroll for speed · F land';log('You take to the air')}
+  else{document.exitPointerLock?.();camera.fov=40;camera.near=.5;camera.position.copy(fsaved.pos);controls.target.copy(fsaved.tgt);camera.up.set(0,1,0);camera.lookAt(fsaved.tgt);
+    $('hint').textContent='Drag to look around · scroll to zoom'}
+  camera.updateProjectionMatrix()}
+$('fly').addEventListener('click',e=>{setFly(!fly);e.currentTarget.blur()});
+$('daylock').addEventListener('click',e=>{setDay(!dayLock);e.currentTarget.blur()});
+function setDay(on){dayLock=on;$('daylock').setAttribute('aria-pressed',on);toast(on?'Always daytime':'Day and night cycle on')}
+addEventListener('wheel',e=>{if(!fly)return;flySp=clamp(flySp*(e.deltaY<0?1.15:1/1.15),4,80);toast(`Flight speed ${Math.round(flySp)}`)},{passive:true});
+function updateFly(dt){
+  const k=c=>keys.has(c),fw=(k('KeyW')||k('ArrowUp')?1:0)-(k('KeyS')||k('ArrowDown')?1:0),st=(k('KeyD')||k('ArrowRight')?1:0)-(k('KeyA')||k('ArrowLeft')?1:0),up=(k('Space')?1:0)-(k('ShiftLeft')||k('ShiftRight')?1:0);
+  const sp=flySp*(k('ControlLeft')||k('ControlRight')?2.6:1),cp=Math.cos(pitch),sx=Math.sin(yaw),cz=Math.cos(yaw);
+  const tx=(-sx*cp*fw+cz*st)*sp,ty=(Math.sin(pitch)*fw+up)*sp,tz=(-cz*cp*fw-sx*st)*sp;
+  flyV.x+=(tx-flyV.x)*Math.min(1,dt*6);flyV.y+=(ty-flyV.y)*Math.min(1,dt*6);flyV.z+=(tz-flyV.z)*Math.min(1,dt*6);
+  const P=camera.position,B=HALF-1;
+  P.x=clamp(P.x+flyV.x*dt,-B,B);P.z=clamp(P.z+flyV.z*dt,-B,B);P.y+=flyV.y*dt;
+  const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),lo=Math.max(topAt(i,j),W)+1.3;
+  if(P.y<lo){P.y=lo;if(flyV.y<0)flyV.y=0}if(P.y>110){P.y=110;flyV.y=0}
+  camera.rotation.set(pitch,yaw,0,'YXZ')}
 function lockPointer(){try{const r=canvas.requestPointerLock?.();r?.catch?.(()=>{})}catch(e){}}
-canvas.addEventListener('click',()=>{if(photoOn&&pov&&document.pointerLockElement===canvas){snap();return}if(pov&&document.pointerLockElement!==canvas)lockPointer()});
+canvas.addEventListener('click',()=>{if(photoOn&&(pov||fly)&&document.pointerLockElement===canvas){snap();return}if((pov||fly)&&document.pointerLockElement!==canvas)lockPointer()});
 document.addEventListener('pointerlockchange',()=>{document.body.classList.toggle('locked',document.pointerLockElement===canvas);keys.clear()});
-document.addEventListener('mousemove',e=>{if(!pov||document.pointerLockElement!==canvas)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
+document.addEventListener('mousemove',e=>{if(!(pov||fly)||document.pointerLockElement!==canvas)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
 addEventListener('keydown',e=>{
   if(e.target!==document.body&&e.target!==canvas&&!(e.target instanceof HTMLButtonElement))return;
   if(e.code==='KeyV'&&!e.repeat){setPov(!pov);return}
+  if(e.code==='KeyF'&&!e.repeat){setFly(!fly);return}
+  if(e.code==='KeyT'&&!e.repeat){setDay(!dayLock);return}
   if(e.code==='KeyM'&&!e.repeat){setSound(!SND.on);return}
   if(e.code==='KeyJ'&&!e.repeat){toggleJournal();return}
   if(e.code==='KeyP'&&!e.repeat){setPhoto(!photoOn);return}
   if(photoOn&&(e.code==='Space'||e.code==='Enter')){e.preventDefault();if(!e.repeat)snap();return}
-  if(!pov)return;
-  if(!e.repeat){if(e.code==='KeyE')pickBerry();else if(e.code==='KeyQ')skipStone();else if(e.code==='KeyX')setSit(!sitting)}
+  if(!pov&&!fly)return;
+  if(!e.repeat&&pov){if(e.code==='KeyE')pickBerry();else if(e.code==='KeyQ')skipStone();else if(e.code==='KeyX')setSit(!sitting)}
   if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
-  if(e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
+  if(pov&&e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
   keys.add(e.code)});
 addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='KeyW'||e.code==='ArrowUp')sprint=false});
 addEventListener('blur',()=>keys.clear());
@@ -1692,7 +1730,7 @@ function frame(){
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
   soundTick(rdt,s);
-  if(pov){updatePlayer(rdt);povTick(rdt)}else controls.update();
+  if(pov){updatePlayer(rdt);povTick(rdt)}else if(fly)updateFly(rdt);else controls.update();
   updateRays(rdt,s);
   renderFinal(s);
 }
