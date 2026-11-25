@@ -1319,7 +1319,7 @@ const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
 let stepAcc=0,wasGround=true,lastVy=0;
 function surfaceAt(P){const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),t=inB(i,j)?topOf[i*N+j]:null,s=season();
   if(isWater(P.x,P.z)&&iceAmt(s)<.5)return'water';if(P.y>cellH(P.x,P.z)+.3)return'wood';if(!t)return'path';if(snowAmt(s)>t.snowR)return'snow';if(t.lit*litter(s)>.3)return'leaves';return t.kind==='grass'?'grass':'path'}
-const keys=new Set();let fly=false,flyV=new THREE.Vector3(),flySp=16,pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
+const keys=new Set();let stepOff=0,eyeH=1.62,fly=false,flyV=new THREE.Vector3(),flySp=16,pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
 function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
@@ -1333,7 +1333,7 @@ function setPov(on){
   if(on===pov)return;if(on&&fly)setFly(false);pov=on;document.body.classList.toggle('pov',on);$('pov').setAttribute('aria-pressed',on);
   controls.enabled=!on;player.hidden=!on;keys.clear();
   if(on){saved.pos.copy(camera.position);saved.tgt.copy(controls.target);
-    const[x,z]=spawnPoint();player.pos.set(x,Math.max(cellH(x,z),SURF-1),z);vy=0;
+    const[x,z]=spawnPoint();player.pos.set(x,Math.max(cellH(x,z),SURF-1),z);vy=0;stepOff=0;eyeH=EYE;
     yaw=Math.atan2(x,z);pitch=-.05; // face the middle of the hollow
     camera.fov=72;camera.near=.05;lockPointer();
     $('hint').textContent='Click the forest to look · WASD move · Space jump · Shift sneak · E Q X interact · V leave';
@@ -1370,7 +1370,7 @@ function updateFly(dt){
 function lockPointer(){try{const r=canvas.requestPointerLock?.();r?.catch?.(()=>{})}catch(e){}}
 canvas.addEventListener('click',()=>{if(photoOn&&(pov||fly)&&document.pointerLockElement===canvas){snap();return}if((pov||fly)&&document.pointerLockElement!==canvas)lockPointer()});
 document.addEventListener('pointerlockchange',()=>{document.body.classList.toggle('locked',document.pointerLockElement===canvas);keys.clear()});
-document.addEventListener('mousemove',e=>{if(!(pov||fly)||document.pointerLockElement!==canvas)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
+document.addEventListener('mousemove',e=>{if(!(pov||fly)||document.pointerLockElement!==canvas||Math.abs(e.movementX)>250||Math.abs(e.movementY)>250)return;yaw-=e.movementX*.0022;pitch=Math.max(-1.55,Math.min(1.55,pitch-e.movementY*.0022))});
 addEventListener('keydown',e=>{
   if(e.target!==document.body&&e.target!==canvas&&!(e.target instanceof HTMLButtonElement))return;
   if(e.code==='KeyV'&&!e.repeat){setPov(!pov);return}
@@ -1397,22 +1397,24 @@ function updatePlayer(dt){
   if(sitting&&(fw||st||k('Space')))setSit(false);player.stalk=sneak||sitting;
   let mx=0,mz=0;if(fw||st){const l=Math.hypot(fw,st),sx=Math.sin(yaw),cz=Math.cos(yaw);mx=(-sx*fw+cz*st)/l*sp*dt;mz=(-cz*fw-sx*st)/l*sp*dt}
   // horizontal moves, one axis at a time; small ledges (≤0.6) are stepped up, like slabs and paths
-  const lim=onGround?STEP:.01,B=HALF-PR-.05;
+  const lim=onGround?STEP:inWater?.45:.01,B=HALF-PR-.05;let hop=false;
   for(const ax of['x','z']){const d=ax==='x'?mx:mz;if(!d)continue;const nx=ax==='x'?Math.max(-B,Math.min(B,P.x+d)):P.x,nz=ax==='z'?Math.max(-B,Math.min(B,P.z+d)):P.z;
-    if(hits(nx,nz,P.y,lim))continue;
+    if(hits(nx,nz,P.y,lim)){if(inWater&&!hits(nx,nz,P.y,2.5))hop=true;continue} // a bank within reach: hop out of the water
     if(sneak&&onGround&&groundUnder(nx,nz,P.y)<P.y-.6)continue; // sneaking keeps you from walking off edges
-    P.x=nx;P.z=nz;const g=groundUnder(P.x,P.z,P.y);if(onGround&&g>P.y)P.y=g}
+    P.x=nx;P.z=nz;const g=groundUnder(P.x,P.z,P.y);if(onGround&&g>P.y){stepOff+=P.y-g;P.y=g}}
   // vertical: gravity, jumping, swimming
   if(inWater){vy-=GRAV*.25*dt;vy*=Math.pow(.2,dt);if(k('Space'))vy=Math.min(vy+GRAV*.6*dt,3.2);}
   else{vy-=GRAV*dt;if(k('Space')&&onGround)vy=JUMP}
+  if(hop&&inWater)vy=Math.max(vy,7);
   P.y+=vy*dt;const g=groundUnder(P.x,P.z,P.y-vy*dt);
-  if(P.y<=g){P.y=g;if(vy<0)vy=0;onGround=true}else onGround=false;
-  if(inWater&&P.y>SURF-.3&&vy>0&&!k('Space'))vy=Math.min(vy,.5);
+  if(P.y<=g){if(vy>-1&&g-P.y>.05)stepOff+=P.y-g;P.y=g;if(vy<0)vy=0;onGround=true}else onGround=false;
+  if(inWater&&!hop&&P.y>SURF-.3&&vy>0&&!k('Space'))vy=Math.min(vy,.5);
   // camera at eye height, with a little head bob when walking
   const moving=(fw||st)&&onGround;bob=moving?bob+dt*sp*2.2:bob*.85;
   if(moving){stepAcc+=dt*sp;if(stepAcc>.85){stepAcc=0;footprint(P.x,P.z,Math.atan2(mx,mz),.13,pfs=-pfs);wearCell(cellOf(P.x,P.z),.03);sfx('step',undefined,undefined,0,surfaceAt(P))}}
   if(onGround&&!wasGround&&lastVy<-4)sfx('step',undefined,undefined,0,surfaceAt(P));wasGround=onGround;lastVy=vy;
-  camera.position.set(P.x,P.y+(sitting?EYE-.8:sneak?EYE-.27:EYE)+Math.sin(bob)*.05,P.z);
+  eyeH+=((sitting?EYE-.8:sneak?EYE-.27:EYE)-eyeH)*Math.min(1,dt*14);stepOff*=Math.exp(-dt*12);
+  camera.position.set(P.x,P.y+eyeH+stepOff+Math.sin(bob)*.05,P.z);
   camera.rotation.set(pitch,yaw,0,'YXZ');
 }
 
