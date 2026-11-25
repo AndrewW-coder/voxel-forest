@@ -117,7 +117,7 @@ button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2
 </div>
 <div id="cross" aria-hidden="true"></div>
 <div id="flymsg">Click the forest to look around<br><b>WASD</b> fly · <b>Space</b> up · <b>Shift</b> down · <b>Ctrl</b> boost · <b>Scroll</b> speed<br><b>Esc</b> release mouse · <b>F</b> land · <b>P</b> photo</div>
-<div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV<br><b>E</b> pick berries · <b>Q</b> skip a stone · <b>X</b> sit still · <b>J</b> journal · <b>P</b> photo</div>
+<div id="povmsg">Click the forest to look around<br><b>WASD</b> move · <b>Space</b> jump / swim · double-tap <b>Space</b> to fly · <b>Ctrl</b> or double-tap <b>W</b> sprint · <b>Shift</b> sneak · <b>Esc</b> release mouse · <b>V</b> leave POV<br><b>E</b> pick berries · <b>Q</b> skip a stone · <b>X</b> sit still · <b>J</b> journal · <b>P</b> photo</div>
 <section class="card" id="journal" aria-label="Field journal"><header><h2>Field journal</h2><span class="hint" id="jc"></span><button class="b" id="jx">Close</button></header><p class="hint" style="margin:0 0 6px">Walk the forest in POV mode to fill it in: look at animals for a moment, find their signs, and try things out.</p><ul id="jl"></ul></section>
 <div class="card" id="toast" role="status" aria-live="polite"></div>
 <div id="vf" aria-hidden="true"><i></i><i></i><i></i><i></i><div class="vbar"><button class="b" id="snapb">Take photo</button><button class="b" id="vfx">Done</button></div></div>
@@ -1312,7 +1312,8 @@ document.querySelectorAll('.strip button').forEach(b=>b.addEventListener('click'
 }));
 $('pause').addEventListener('click',()=>{paused=!paused;$('pause').textContent=paused?'Play':'Pause';$('pause').setAttribute('aria-pressed',paused)});
 document.querySelectorAll('[data-sp]').forEach(b=>b.addEventListener('click',()=>{speed=+b.dataset.sp;document.querySelectorAll('[data-sp]').forEach(x=>x.setAttribute('aria-pressed',x===b))}));
-$('orbit').addEventListener('click',()=>{controls.autoRotate=!controls.autoRotate;$('orbit').setAttribute('aria-pressed',controls.autoRotate)});
+const syncOrbit=()=>$('orbit').setAttribute('aria-pressed',controls.autoRotate&&!pov&&!fly); // Orbit only shows as selected while you are actually in the orbit view
+$('orbit').addEventListener('click',()=>{if(pov||fly){if(pov)setPov(false);if(fly)setFly(false);controls.autoRotate=true}else controls.autoRotate=!controls.autoRotate;syncOrbit()});
 $('orbit').setAttribute('aria-pressed',controls.autoRotate);
 $('pxs').addEventListener('input',e=>{pxSize=+e.target.value;resize()});
 addEventListener('keydown',e=>{if(e.code==='Space'&&e.target===document.body&&!pov&&!fly&&!photoOn){e.preventDefault();$('pause').click()}});
@@ -1328,7 +1329,7 @@ const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
 let stepAcc=0,wasGround=true,lastVy=0;
 function surfaceAt(P){const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),t=inB(i,j)?topOf[i*N+j]:null,s=season();
   if(isWater(P.x,P.z)&&iceAmt(s)<.5)return'water';if(P.y>cellH(P.x,P.z)+.3)return'wood';if(!t)return'path';if(snowAmt(s)>t.snowR)return'snow';if(t.lit*litter(s)>.3)return'leaves';return t.kind==='grass'?'grass':'path'}
-const keys=new Set();let stepOff=0,eyeH=1.62,fly=false,flyV=new THREE.Vector3(),flySp=16,pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
+const keys=new Set();let lastSp=0,stepOff=0,eyeH=1.62,fly=false,flyV=new THREE.Vector3(),flySp=16,pov=false,yaw=0,pitch=0,vy=0,onGround=false,lastW=0,sprint=false,bob=0;
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
 function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
@@ -1349,7 +1350,7 @@ function setPov(on){
     log('You step into the forest')}
   else{document.exitPointerLock?.();camera.fov=40;camera.near=.5;camera.position.copy(saved.pos);controls.target.copy(saved.tgt);camera.up.set(0,1,0);camera.lookAt(saved.tgt);
     $('hint').textContent='Drag to look around · scroll to zoom';povExit()}
-  camera.updateProjectionMatrix()}
+  camera.updateProjectionMatrix();syncOrbit()}
 $('pov').addEventListener('click',e=>{setPov(!pov);e.currentTarget.blur()});
 const fsaved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function setFly(on){
@@ -1357,11 +1358,11 @@ function setFly(on){
   controls.enabled=!on;keys.clear();flyV.set(0,0,0);
   if(on){fsaved.pos.copy(camera.position);fsaved.tgt.copy(controls.target);
     const d=new THREE.Vector3();camera.getWorldDirection(d);yaw=Math.atan2(-d.x,-d.z);pitch=Math.asin(clamp(d.y,-1,1))*.8-.1;
-    camera.fov=68;camera.near=.3;controls.autoRotate=false;$('orbit').setAttribute('aria-pressed',false);lockPointer();
+    camera.fov=68;camera.near=.3;controls.autoRotate=false;lockPointer();
     $('hint').textContent='WASD fly · Space up · Shift down · Ctrl boost · scroll for speed · F land';log('You take to the air')}
   else{document.exitPointerLock?.();camera.fov=40;camera.near=.5;camera.position.copy(fsaved.pos);controls.target.copy(fsaved.tgt);camera.up.set(0,1,0);camera.lookAt(fsaved.tgt);
     $('hint').textContent='Drag to look around · scroll to zoom'}
-  camera.updateProjectionMatrix()}
+  camera.updateProjectionMatrix();syncOrbit()}
 $('fly').addEventListener('click',e=>{setFly(!fly);e.currentTarget.blur()});
 $('daylock').addEventListener('click',e=>{setDay(!dayLock);e.currentTarget.blur()});
 function setDay(on){dayLock=on;$('daylock').setAttribute('aria-pressed',on);toast(on?'Always daytime':'Day and night cycle on')}
@@ -1392,6 +1393,8 @@ addEventListener('keydown',e=>{
   if(!pov&&!fly)return;
   if(!e.repeat&&pov){if(e.code==='KeyE')pickBerry();else if(e.code==='KeyQ')skipStone();else if(e.code==='KeyX')setSit(!sitting)}
   if(['Space','ControlLeft','ControlRight','KeyW','KeyA','KeyS','KeyD','ShiftLeft','ShiftRight','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code))e.preventDefault();
+  if(pov&&e.code==='Space'&&!e.repeat){const t=performance.now();
+    if(t-lastSp<300&&!photoOn){lastSp=0;const p=camera.position.clone(),y0=yaw,p0=pitch;setFly(true);camera.position.copy(p);yaw=y0;pitch=p0;flyV.set(0,3,0);return}lastSp=t}
   if(pov&&e.code==='KeyW'&&!e.repeat){const t=performance.now();if(t-lastW<280)sprint=true;lastW=t}
   keys.add(e.code)});
 addEventListener('keyup',e=>{keys.delete(e.code);if(e.code==='KeyW'||e.code==='ArrowUp')sprint=false});
