@@ -529,7 +529,7 @@ function chunkInst(baseGeo,mat,items,asz,fill,range,kind){
     const ci=Math.floor(k/NCS),cj=k%NCS,c=new THREE.Vector3(cx(ci*CS+CS/2),14,cx(cj*CS+CS/2));
     im.boundingSphere=new THREE.Sphere(c,CS*.72+18);im.receiveShadow=true;scene.add(im);lodSets.push({im,c,range,kind})}}
 let fernOn=true;
-function updateLod(){const cp=camera.position;for(const L of lodSets){const d=Math.hypot(cp.x-L.c.x,cp.z-L.c.z);L.im.visible=d<L.range*(pov?.5:1)+CS&&(L.kind!=='fern'||fernOn)}}
+function updateLod(){const cp=camera.position;for(const L of lodSets){const d=Math.hypot(cp.x-L.c.x,cp.z-L.c.z);L.im.visible=d<L.range*(pov?.5:fly?.75:1)+CS&&(L.kind!=='fern'||fernOn)}}
 // grass blades + shoreline reeds
 const bladeGeo=new THREE.BoxGeometry(.07,1,.07);bladeGeo.translate(0,.5,0);
 const bladeMat=shaderMod(new THREE.MeshLambertMaterial({color:'#5aa83d'}),'blade','attribute vec3 aB;',
@@ -1188,7 +1188,8 @@ function renderFinal(s){
 // frame-time governor: backs off shadow refresh, particles and post effects when frames run long (never touches pixel size)
 let ftA=1/60,qT=0;
 function govern(rdt){if(document.hidden||rdt>=.1)return;ftA+=(rdt-ftA)*.05;qT+=rdt;
-  if(ftA>.026&&qT>3&&quality>0){quality--;qT=0}else if(ftA<.0145&&qT>10&&quality<2){quality++;qT=0}else if(qT>10)qT=0}
+  if(ftA>.026&&qT>3&&quality>0){quality--;qT=0}else if(ftA<.0145&&qT>10&&quality<2){quality++;qT=0}else if(qT>10)qT=0;
+  if(leafMesh.castShadow!==quality>0)leafMesh.castShadow=quality>0} // on the slowest machines the canopy stops casting shadows
 
 // ---------- sound: everything is synthesised with Web Audio, no files ----------
 const SND={on:false,ctx:null,voices:0,t:0},RIr=(a,b)=>Math.floor(rr(a,b+1));
@@ -1422,7 +1423,7 @@ function updatePlayer(dt){
 const clock=new THREE.Clock();
 let prevS=season(),lastDay=Math.floor(simDays),visT=0,hudT=0,tReal=0;
 log(`A new year of observation begins in ${WORLD.name}`);$('newb').addEventListener('click',()=>{location.search='?seed='+((Math.random()*1e9)|0)});
-let visS=-9,shF=0;
+let visS=-9,shF=0;const lastShT=new THREE.Vector3(1e9,0,0);
 // ---------- forest life cycle: old trees die, stand as snags, topple, rot into mossy logs, and saplings fill the gap ----------
 const aTA=leafGeo.attributes.aT,TRUNKC=trunkList.map(b=>b[3]),CHAR=C('#1d1915'),WEATHER=C('#8f877a');
 const tm4=new THREE.Matrix4(),tv=new THREE.Vector3(),tsc=new THREE.Vector3(),Q0=new THREE.Quaternion();
@@ -1758,7 +1759,10 @@ function frame(){
   prevS=s;
   // seasonal recolouring only when the season has actually moved (nothing at all while paused)
   visT-=rdt;if(jumped||(visT<=0&&Math.abs(s-visS)>.006)){updateSeasonVisuals(s,jumped);visS=s;visT=.3;jumped=false}
-  if((++shF%(4-quality))===0||jumped)renderer.shadowMap.needsUpdate=true;
+  // the shadow pass is the priciest part of a frame (every leaf cube is drawn again), so redraw it sparingly:
+  // not at all while paused with the light unmoved, and less often when seen from afar or when the frame governor asks
+  {const T=sun.target.position,moved=T.distanceToSquared(lastShT)>.01;if(moved)lastShT.copy(T);
+   if(jumped||moved||(!paused&&(++shF%((pov?4:5)-quality))===0))renderer.shadowMap.needsUpdate=true}
   updateSky(s);updateLod();updateMist(rdt,s);updateWeather(rdt,s);updateClouds(rdt);updateParticles(rdt,tReal);updateFireflies(s);updateSmallLife(rdt,s);updateFire(rdt,s);govern(rdt);
   WU.uTime.value=tReal;WU.uWind.value=.3+wind*.35+weather.amt*(weather.kind==='rain'?1.1:.6);
   hudT-=rdt;if(hudT<=0){updHud(s);hudT=.25}
