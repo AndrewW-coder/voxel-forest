@@ -561,6 +561,25 @@ for(let a=0,n=0;a<3000&&n<60;a++){ // stumps
 function boxMesh(list,mat){const im=new THREE.InstancedMesh(box1,mat,Math.max(1,list.length));const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();
   list.forEach((p,k)=>{m.compose(v.set(p[0],p[1],p[2]),q,sc.set(p[3],p[4],p[5]));im.setMatrixAt(k,m);if(p[6])im.setColorAt(k,p[6])});im.castShadow=im.receiveShadow=true;scene.add(im);return im}
 boxMesh(props,lamW());
+// a few things left behind by people: a ring of standing stones, a ruined wall, an old campfire
+{const flat=(i,j,r)=>{const h=H[i][j];if(h<5||h>12)return false;for(let a=-r;a<=r;a++)for(let b=-r;b<=r;b++){if(!inB(i+a,j+b)||H[i+a][j+b]!==h||blocked[(i+a)*N+j+b]||trail[(i+a)*N+j+b])return false}return true};
+  const spot=r=>{for(let k=0;k<900;k++){const i=RI(8,N-9),j=RI(8,N-9);if(flat(i,j,r)&&!waterNear(i,j,3)&&Math.hypot(i-den.i,j-den.j)>8)return[i,j]}return null};
+  const L=[],G=()=>C('#8a8a86').multiplyScalar(R(.72,1.05)),MS=()=>C('#6f8a58').multiplyScalar(R(.7,1)),fire=[];
+  const ring=spot(3);if(ring){const[i,j]=ring,x=cx(i),z=cx(j),h=H[i][j];for(let k=0;k<7;k++){const a=k/7*6.283+R(-.12,.12),hh=R(1.5,2.5);L.push([x+Math.cos(a)*2.4,h+hh/2,z+Math.sin(a)*2.4,.6,hh,.5,rnd()<.35?MS():G()]);}
+    L.push([x,h+.12,z,.9,.24,.9,G()]);for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)blocked[(i+a)*N+j+b]=1}
+  const ru=spot(3);if(ru){const[i,j]=ru,x=cx(i),z=cx(j),h=H[i][j];for(let q=-2;q<=2;q++)for(const side of[-2,2]){if(rnd()<.35)continue;const hh=Math.floor(R(1,3.4));for(let y=0;y<hh;y++)L.push([x+q+R(-.05,.05),h+y+.5,z+side+R(-.04,.04),R(.92,1),1,R(.92,1),rnd()<.3?MS():G()])}
+    for(let q=-1;q<=1;q++)if(rnd()<.6)L.push([x+side0(q),h+.5,z+R(-1,1),1,1,1,G()]);
+    for(let y=0;y<2;y++)L.push([x+3.4,h+y+.5,z-1,.7,1,.7,G()]); // a lone column
+    L.push([x-1,h+.35,z+.4,2.2,.5,.6,MS()]); // a fallen block
+    for(let a=-2;a<=2;a++)for(let b=-2;b<=2;b++)blocked[(i+a)*N+j+b]=1}
+  function side0(q){return q*1.1}
+  // campfire beside the trail, if the trail passes over flat ground
+  let cf=null;for(let k=0;k<400&&!cf;k++){const i=RI(8,N-9),j=RI(8,N-9);if(!trail[i*N+j]||H[i][j]<W+1)continue;for(const[a,b]of[[2,0],[-2,0],[0,2],[0,-2]]){const ii=i+a,jj=j+b;if(inB(ii,jj)&&!trail[ii*N+jj]&&!blocked[ii*N+jj]&&H[ii][jj]===H[i][j]&&H[ii][jj]>W){cf=[ii,jj];break}}}
+  if(cf){const[i,j]=cf,x=cx(i),z=cx(j),h=H[i][j];for(let k=0;k<7;k++){const a=k/7*6.283;L.push([x+Math.cos(a)*.55,h+.12,z+Math.sin(a)*.55,.28,.24,.28,G()])}
+    L.push([x,h+.1,z,.45,.14,.45,C('#2a1f18')],[x-.15,h+.24,z,.9,.16,.2,C('#4a3322')],[x+.1,h+.3,z+.1,.2,.16,.8,C('#4a3322')]);fire.push([x,h+.22,z,.28,.2,.28,C('#ff9a3a')],[x+.05,h+.4,z-.04,.16,.22,.16,C('#ffd060')]);
+    L.push([x+1.1,h+.2,z+.5,.9,.4,.45,C('#6b4a2f')]);blocked[i*N+j]=1}
+  if(L.length){const m=boxMesh(L,lamW());m.castShadow=true}
+  if(fire.length){const m=boxMesh(fire,new THREE.MeshBasicMaterial({color:'#fff'}));m.castShadow=m.receiveShadow=false}}
 const mossMat=new THREE.MeshLambertMaterial({color:'#4f8a3a'}),MOSS=C('#4f8a3a');boxMesh(mossL,mossMat);
 // Grass and ferns are split into 24-cell chunks, culled by the frustum and hidden beyond a draw distance
 const CS=24,NCS=Math.ceil(N/CS),lodSets=[];
@@ -996,7 +1015,11 @@ function updateAnimals(dt,s){
   packTick(dt);
   const dr=BY.deer||NONE;if(dr.length){herd.x=dr.reduce((a,d)=>a+d.pos.x,0)/dr.length;herd.z=dr.reduce((a,d)=>a+d.pos.z,0)/dr.length}
   // the herd drifts slowly between grazing grounds
-  herd.gt-=dt;if(herd.gt<=0){const t=randTarget(herd.x,herd.z,14);herd.gx=t?t.x:herd.x;herd.gz=t?t.z:herd.z;herd.gt=DAY*rr(.35,.8)}
+  herd.gt-=dt;if(herd.gt<=0){ // at dawn and dusk the herd likes to visit water; otherwise it moves on to the freshest, least grazed grass nearby
+    let best=null,bs=1e9,drink=false;
+    if((twilight()||Math.random()<.15)&&Math.random()<.5){const w=nearWater(herd.x,herd.z,18);if(w){best=randTarget(w.x,w.z,2.5)||null;drink=!!best}}
+    if(!best)for(let k=0;k<6;k++){const t=randTarget(herd.x,herd.z,16);if(!t)continue;const tp=topOf[cellOf(t.x,t.z)],sc=tp?tp.graze+tp.wear*.5+(tp.kind==='grass'?0:.6):.8;if(sc<bs){bs=sc;best=t}}
+    herd.gx=best?best.x:herd.x;herd.gz=best?best.z:herd.z;herd.gt=DAY*(drink?rr(.12,.2):rr(.35,.8))}
   let dn=0,dx=0,dz=0;for(const a of animals)if(a.type==='duck'&&a.alive&&a.st==='present'){dn++;dx+=a.pos.x;dz+=a.pos.z}if(dn){duckC.x=dx/dn;duckC.z=dz/dn}
   for(const e of animals){
     if(!e.alive)continue;
@@ -1108,8 +1131,11 @@ function updateSky(s){
 }
 function updateClouds(dt){const wet=weather.amt,n=.3+wet*.7;cloudMat.color.setRGB(1,1,1).lerp(C('#8a929c'),wet).multiplyScalar(.35+.65*daylight);
   for(const g of clouds){g.position.x+=wind*dt*1.2;if(g.position.x>155)g.position.x=-155;g.visible=g.userData.th<n}}
+let wetG=0;
 function updateWeather(dt,s){
   weather.amt+=(weather.target-weather.amt)*Math.min(1,dt*.4);
+  wetG+=((weather.kind==='rain'?weather.amt:weather.kind==='snow'?0:0)-wetG)*Math.min(1,dt*(weather.amt>wetG?.5:.05)); // the ground stays dark and damp for a while after rain
+  terrain.material.color.setScalar(1-.2*wetG);
   if(weather.target===0&&weather.amt<.05&&weather.kind!=='clear'){/* fade done */}
   wind=1.2+Math.sin(simT*.05)*.8;
   if(paused)return;
@@ -1259,7 +1285,7 @@ function audioInit(){
   SND.white=mk(d=>{for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1});
   SND.brown=mk(d=>{let l=0;for(let i=0;i<d.length;i++){l=(l+.02*(Math.random()*2-1))/1.02;d[i]=l*3.5}});
   const bed=(buf,type,f,q)=>{const src=c.createBufferSource();src.buffer=buf;src.loop=true;src.loopStart=Math.random();const fl=c.createBiquadFilter();fl.type=type;fl.frequency.value=f;fl.Q.value=q;const g=c.createGain();g.gain.value=0;src.connect(fl).connect(g).connect(SND.master);src.start();return{fl,g}};
-  SND.wind=bed(SND.brown,'bandpass',380,.6);SND.rustle=bed(SND.white,'bandpass',2600,.5);SND.rain=bed(SND.white,'highpass',1400,.4);SND.roar=bed(SND.brown,'lowpass',260,.5);
+  SND.wind=bed(SND.brown,'bandpass',380,.6);SND.rustle=bed(SND.white,'bandpass',2600,.5);SND.rain=bed(SND.white,'highpass',1400,.4);SND.roar=bed(SND.brown,'lowpass',260,.5);SND.brook=bed(SND.white,'bandpass',1150,.7);
   return true}
 // one short voice: oscillator or noise -> filter -> envelope -> stereo pan; nodes are released when it ends
 function voice(t,{type='sine',noise=null,f0=1000,f1,dur=.1,vol=.2,pan=0,ft,ff,fq=1,a=.005,glide}={}){
@@ -1303,6 +1329,11 @@ function soundTick(rdt,s){
   const set=(par,v)=>par.setTargetAtTime(v,t,.35);
   set(SND.wind.g.gain,(.05+.05*wind+.08*wet)*P);set(SND.wind.fl.frequency,260+wind*140+Math.sin(tReal*.7)*60);
   set(SND.rustle.g.gain,.022*wind*clamp(fol(s)+.25)*P);set(SND.rain.g.gain,.2*rain*(pov?1:.7));
+  { // the sound of running water grows as you near the river or a lake shore
+    const L=pov?camera.position:controls.target;let md=1e9;
+    for(const q of wetPts){const d=Math.hypot(L.x+HALF-q[0]-.5,L.z+HALF-q[1]-.5);if(d<md)md=d}
+    for(const q of lakes){const d=Math.max(0,Math.hypot(L.x+HALF-q.i-.5,L.z+HALF-q.j-.5)-q.r*.7);if(d<md)md=d*1.6}
+    set(SND.brook.g.gain,.075*(1-sm(3,22,md))*(pov?1:.5));set(SND.brook.fl.frequency,950+Math.sin(performance.now()/1100)*160)}
   set(SND.roar.g.gain,fireCells.length?Math.min(.25,fireCells.length*.01)*spot(fireCx,fireCz,25).vol:0);
   if(paused)return;
   const birdsHere=BY.bird?BY.bird.filter(b=>!b.hidden).length:0,dawn=Math.abs(d-.26)<.06?3.5:1;
