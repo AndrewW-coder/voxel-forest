@@ -376,7 +376,9 @@ function mkLeaf(type,x,y,z,sc,top,hf){
 }
 const FACES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]];
 const DENS={temperate:.95,taiga:.9,meadow:.06,savanna:.12,desert:.045,swamp:.35,birch:.95,cherry:.75};
-const forestP=(i,j,h)=>DENS[bioOf(i,j,h)]*(.4+.6*sm(.35,.55,nz(i*.05,j*.05,300)))*(1-sm(14,19,h))+.008;
+const clearings=[];for(let k=0,n=RI(3,6);k<n;k++)clearings.push({i:R(10,N-10),j:R(10,N-10),r:R(4,8)});
+const forestP=(i,j,h)=>{let c=1;for(const q of clearings){const d=Math.hypot(i-q.i,j-q.j)/q.r;if(d<1)c=Math.min(c,.04+.96*sm(.55,1,d))}
+  return DENS[bioOf(i,j,h)]*(.4+.6*sm(.35,.55,nz(i*.05,j*.05,300)))*(.3+.7*sm(.36,.52,nz(i*.11,j*.11,330)))*c*(1-sm(14,19,h))+.008};
 const waterNear=(i,j,r)=>{for(let a=Math.max(0,i-r);a<=Math.min(N-1,i+r);a++)for(let b=Math.max(0,j-r);b<=Math.min(N-1,j+r);b++)if(H[a][b]<W)return true;return false};
 function treeType(b,h,i,j){const r=rnd();
   if(h>=15)return'pine';
@@ -400,30 +402,31 @@ for(let a=0;a<16000&&trees.length<420;a++){
   const type=treeType(bioOf(i,j,h),h,i,j);
   const tree={i,j,type,x:cx(i),z:cx(j),base:h,g:1,dead:false,char:0,st:'alive',t0:trunkList.length,l0:leaves.length};trees.push(tree);blocked[i*N+j]=1;
   const x=cx(i),z=cx(j),base=h,bark=C(BARK[type]);
-  const th={pine:RI(4,6),oak:RI(3,5),birch:RI(4,6),maple:RI(3,5),cherry:RI(2,3),acacia:RI(4,5),willow:RI(3,4),palm:RI(5,7),cactus:RI(2,4)}[type];
+  const young=rnd()<.1&&type!=='cactus'&&type!=='palm',crown=young?R(.55,.7):R(.88,1.22),lean=!young&&type!=='cactus'&&rnd()<.35,lx=lean?R(-.09,.09):0,lz=lean?R(-.09,.09):0;
+  const th=young?RI(1,2):Math.max(1,{pine:RI(4,6),oak:RI(3,5),birch:RI(4,6),maple:RI(3,5),cherry:RI(2,3),acacia:RI(4,5),willow:RI(3,4),palm:RI(5,7),cactus:RI(2,4)}[type]+(rnd()<.2?1:0));
   if(type==='cactus')cactus(x,base,z,th);
   else for(let y=0;y<th;y++){
     const ao=.7+.3*Math.min(1,y/3);
     const c=(type==='birch'&&rnd()<.25?C('#2e2e2e'):bark.clone().multiplyScalar(R(.88,1.08))).multiplyScalar(ao);
-    tpush(x,base+y+.5,z,c);
+    tpush(x+lx*y,base+y+.5,z+lz*y,c);
     for(const[dx,dz]of DIRS)if(rnd()<.45){ // raised bark plates and birch flecks
       const pc=type==='birch'?C(rnd()<.6?'#2e2e2e':'#cfc9b8'):bark.clone().multiplyScalar(R(.58,.75)*ao);
-      tpush(x+dx*.52,base+y+R(.3,.7),z+dz*.52,pc,dx?.08:R(.2,.5),type==='birch'?R(.12,.25):R(.3,.75),dz?.08:R(.2,.5));
+      tpush(x+lx*y+dx*.52,base+y+R(.3,.7),z+lz*y+dz*.52,pc,dx?.08:R(.2,.5),type==='birch'?R(.12,.25):R(.3,.75),dz?.08:R(.2,.5));
     }
   }
   if(type!=='cactus')for(const[dx,dz]of DIRS)if(rnd()<.6)tpush(x+dx*.68,base+.18,z+dz*.68,bark.clone().multiplyScalar(.68),dx?.5:.42,.36,dz?.5:.42); // roots
   if(type!=='pine'&&type!=='cactus'&&type!=='palm'){ // branches, visible once the leaves drop
     const nb=RI(2,4);for(let b=0;b<nb;b++){const[dx,dz]=pick(DIRS),len=RI(1,2),by=base+th-1-RI(0,1)+.5,bc=bark.clone().multiplyScalar(.85);
-      tpush(x+dx*(.5+len/2),by,z+dz*(.5+len/2),bc,dx?len:.3,.3,dz?len:.3);
-      tpush(x+dx*(.35+len),by+.55,z+dz*(.35+len),bc,.26,.85,.26)}
-    tpush(x,base+th+.5,z,bark.clone().multiplyScalar(.9),.5,1,.5);
+      tpush(x+lx*th+dx*(.5+len/2),by,z+lz*th+dz*(.5+len/2),bc,dx?len:.3,.3,dz?len:.3);
+      tpush(x+lx*th+dx*(.35+len),by+.55,z+lz*th+dz*(.35+len),bc,.26,.85,.26)}
+    tpush(x+lx*th,base+th+.5,z+lz*th,bark.clone().multiplyScalar(.9),.5,1,.5);
   }
   let cells=[];
   if(type==='cactus'){}
   else if(type==='acacia'){const y=base+th;for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++){const q=dx*dx+dz*dz;if(q<=7&&rnd()>.08)cells.push([dx,y,dz]);if(q<=2&&rnd()>.1)cells.push([dx,y+1,dz])}}
   else if(type==='palm'){const y=base+th;cells.push([0,y,0],[0,y+1,0]);for(const[dx,dz]of[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){const L=dx&&dz?2:3;for(let k=1;k<=L;k++)cells.push([dx*k,y+(k>=L?-1:0),dz*k])}}
-  else if(type==='pine'){const top=base+th+3,bot=base+2;for(let y=bot;y<=top;y++){const r=(top-y)/(top-bot)*2.5+.35;for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)if(dx*dx+dz*dz<=r*r&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
-  else{const P={oak:[R(2,2.6),.85,.5],maple:[R(1.8,2.3),1.15,1],birch:[R(1.4,1.7),2.4,1],cherry:[R(2.2,2.8),1.3,.5],willow:[R(2.2,2.8),.8,.5]}[type];const[r,vy,off]=P,cy=base+th+off,ry=r*vy;
+  else if(type==='pine'){const top=base+th+3,bot=base+2;for(let y=bot;y<=top;y++){const r=((top-y)/(top-bot)*2.5+.35)*Math.min(1.12,crown);for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)if(dx*dx+dz*dz<=r*r&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
+  else{const P={oak:[R(2,2.6),.85,.5],maple:[R(1.8,2.3),1.15,1],birch:[R(1.4,1.7),2.4,1],cherry:[R(2.2,2.8),1.3,.5],willow:[R(2.2,2.8),.8,.5]}[type];const[r0,vy,off]=P,r=r0*crown,cy=base+th+off,ry=r*vy;
     for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)for(let dy=-4;dy<=4;dy++){const y=Math.round(cy+dy);if((dx*dx+dz*dz)/(r*r)+((y-cy)**2)/(ry*ry)<=1&&rnd()>.06&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
   if(type==='willow'){const have=new Set(cells.map(c=>c.join(',')));for(const c of cells.slice()){if(Math.hypot(c[0],c[2])>1.5&&rnd()<.5){const n=RI(1,3);for(let q=1;q<=n;q++){const k=[c[0],c[1]-q,c[2]].join(',');if(!have.has(k)){have.add(k);cells.push([c[0],c[1]-q,c[2]])}}}}}
   { // airier canopy: drop some outer-shell cubes that sit in the thick of the crown (the silhouette tips stay), which also lightens the shadow pass
@@ -433,9 +436,9 @@ for(let a=0;a<16000&&trees.length<420;a++){
   for(const[dx,y,dz]of cells){
     const hf=clamp((y-y0)/Math.max(1,y1-y0));
     if(FACES.every(([ax,ay,az])=>key.has(`${dx+ax},${y+ay},${dz+az}`)))continue; // fully enclosed: never visible
-    mkLeaf(type,x+dx,y+.5,z+dz,1,!key.has(`${dx},${y+1},${dz}`),hf);
+    mkLeaf(type,x+lx*th+dx,y+.5,z+lz*th+dz,1,!key.has(`${dx},${y+1},${dz}`),hf);
     for(const[ax,ay,az]of FACES)if(!key.has(`${dx+ax},${y+ay},${dz+az}`)&&rnd()<(ay<0?.04:.1)) // half-size tufts make a ragged outline
-      mkLeaf(type,x+dx+ax*.7+(ax?0:R(-.22,.22)),y+.5+ay*.7+(ay?0:R(-.22,.22)),z+dz+az*.7+(az?0:R(-.22,.22)),.5,ay===1,hf);
+      mkLeaf(type,x+lx*th+dx+ax*.7+(ax?0:R(-.22,.22)),y+.5+ay*.7+(ay?0:R(-.22,.22)),z+lz*th+dz+az*.7+(az?0:R(-.22,.22)),.5,ay===1,hf);
   }
   tree.t1=trunkList.length;tree.l1=leaves.length;tree.th=th;for(let k=tree.l0;k<tree.l1;k++)leaves[k].tr=tree;
 }
@@ -1016,10 +1019,20 @@ function newDay(){
 const GR={dry:C('#8d8a55'),sp:C('#74c44a'),su:C('#4e9a36'),au:C('#a69a42')};
 const gcol=new THREE.Color(),tc=new THREE.Color();
 function grassColor(s,o){return o.copy(GR.dry).lerp(GR.sp,sm(0,.45,s)).lerp(GR.su,sm(.55,1.3,s)).lerp(GR.au,sm(1.9,2.5,s)).lerp(GR.dry,sm(2.75,3.1,s))}
+// baked ground cover (done once): ambient occlusion in hollows and under crowns, moss on shady/wet ground, mud on shorelines
+const MOSSC=C('#3f7a34'),MUDG=C('#6b5b3d'),PEB=C('#8d8d88');
+{const nb=[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]];
+ for(const t of tops){t.ao=1;t.moss=0;t.mud=0;const h=H[t.i][t.j];let hi=0,wet=false;
+  for(const[a,b]of nb){const ii=t.i+a,jj=t.j+b;if(!inB(ii,jj))continue;const d=H[ii][jj]-h;if(d>0)hi+=Math.min(2,d);if(H[ii][jj]<W)wet=true}
+  t.ao=1-Math.min(.32,hi*.045);if(wet&&h>=W){t.mud=t.bb==='swamp'?.7:.38}
+  if(h===W&&t.bb==='swamp')t.mud=.5}
+ for(const T of trees){if(T.bush)continue;for(let a=-2;a<=2;a++)for(let b=-2;b<=2;b++){const t=topOf[(T.i+a)*N+T.j+b];if(!t)continue;const d=Math.max(Math.abs(a),Math.abs(b));t.ao*=d<=1?.84:.93;if(d<=2&&t.kind==='grass'&&hash(t.i*3,t.j*5)<(t.bb==='swamp'||t.bb==='taiga'?.55:.22))t.moss=Math.min(1,t.moss+.45)}}
+ const peb=[];for(const t of tops){if(t.kind==='path'&&t.fix)continue;const wetEdge=t.mud>.3||t.kind==='sand';if((wetEdge&&rnd()<.16)||(t.kind==='path'&&!t.fix&&rnd()<.05)){for(let k=0,n=RI(1,3);k<n;k++){const z=R(.07,.15);peb.push([cx(t.i)+R(-.4,.4),H[t.i][t.j]+z*.3,cx(t.j)+R(-.4,.4),z*R(1,1.6),z*.6,z*R(1,1.5),PEB.clone().multiplyScalar(R(.75,1.15))])}}}
+ if(peb.length){const m=boxMesh(peb,lamW());m.castShadow=false}}
 const tca=terrain.instanceColor.array;
 let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454'),GRAZED=C('#a2a457');
 function paintTop(t){
-  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit);if(t.tint)tc.lerp(t.tint,t.ta);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.graze>.1)tc.lerp(GRAZED,t.graze*.3);if(t.wear>.12)tc.lerp(WORN,Math.min(1,(t.wear-.12)/.7)*.72)}else tc.copy(t.fix||(t.kind==='path'?PATH:SAND)).multiplyScalar(t.jit);
+  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit*t.ao);if(t.tint)tc.lerp(t.tint,t.ta);if(t.moss>0)tc.lerp(MOSSC,t.moss*.45);if(t.mud>0)tc.lerp(MUDG,t.mud*.55);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.graze>.1)tc.lerp(GRAZED,t.graze*.3);if(t.wear>.12)tc.lerp(WORN,Math.min(1,(t.wear-.12)/.7)*.72)}else{tc.copy(t.fix||(t.kind==='path'?PATH:SAND)).multiplyScalar(t.jit*t.ao);if(t.mud>0&&!t.fix)tc.lerp(MUDG,t.mud*.4)}
   if(t.burn>0)tc.lerp(CHARG,t.burn*.9);
   if(visSn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
   const o=t.idx*3;tca[o]=tc.r;tca[o+1]=tc.g;tca[o+2]=tc.b;topDirty=true}
@@ -1037,21 +1050,21 @@ function updateSeasonVisuals(s,quiet){
 }
 
 // ---------- sky ----------
-const SKY=[C('#9ed3f2'),C('#74bdf0'),C('#a9c6e2'),C('#c6d4e2')],NIGHT=C('#0a1230'),DUSK=C('#f39a6b'),RAINSKY=C('#7d8896');
+const HAZE=C('#f0e6d2'),SKY=[C('#9ed3f2'),C('#74bdf0'),C('#a9c6e2'),C('#c6d4e2')],NIGHT=C('#0a1230'),DUSK=C('#f39a6b'),RAINSKY=C('#7d8896');
 const sky=new THREE.Color(),sdir=new THREE.Vector3(),mdir=new THREE.Vector3(),SUNC=C('#fff4e2'),SUNLOW=C('#ffb070'),MOONC=C('#9fb4ff');
-let dayLock=true,daylight=1,sunEl=0,quality=2; // quality: 2 full, 1 reduced, 0 minimal (set by the frame-time governor)
+const GOLD=C('#ffd49a');let dayLock=true,daylight=1,sunEl=0,quality=2; // quality: 2 full, 1 reduced, 0 minimal (set by the frame-time governor)
 function seasonal(keys,s,o){const t=((s-.5)%4+4)%4,i=Math.floor(t),f=t-i;return o.copy(keys[i]).lerp(keys[(i+1)%4],f*f*(3-2*f))}
 function updateSky(s){
-  const df=dayLock?.4:simDays%1,a=(df-.25)*Math.PI*2,el=Math.sin(a),tilt=.72+.28*Math.cos((s-1.5)/4*Math.PI*2);
+  const df=dayLock?.33:simDays%1,a=(df-.25)*Math.PI*2,el=Math.sin(a),tilt=.72+.28*Math.cos((s-1.5)/4*Math.PI*2);
   sdir.set(Math.cos(a)*.9,el*tilt,.45).normalize();mdir.set(-Math.cos(a)*.9,-el*.8,-.35).normalize();
   daylight=sm(-.08,.25,el);sunEl=el;const wet=weather.amt;
   seasonal(SKY,s,sky);sky.lerp(DUSK,(1-sm(0,.32,Math.abs(el)))*.45*(1-wet));sky.lerp(RAINSKY,wet*.6);
   const nsky=NIGHT.clone().lerp(sky,daylight);
-  scene.background=nsky;scene.fog.color.copy(nsky);
+  scene.background=nsky;scene.fog.color.copy(nsky).lerp(HAZE,dayLock?.28:.1*daylight);
   const moon=el<0;const dir=moon?mdir:sdir;
   {const F=focusPt();const fx=Math.round(F.x),fz=Math.round(F.z);sun.target.position.set(fx,pov?F.y:6,fz);sun.position.copy(dir).multiplyScalar(90).add(sun.target.position);const sc=sun.shadow.camera,r=pov?44:fly?54:66;if(sc.right!==r){sc.left=-r;sc.right=r;sc.top=r;sc.bottom=-r;sc.updateProjectionMatrix()}}
   sun.intensity=moon?.55*sm(0,.3,-el):2.7*daylight*(1-.5*wet);
-  sun.color.copy(moon?MOONC:SUNLOW.clone().lerp(SUNC,sm(0,.4,el)));
+  sun.color.copy(moon?MOONC:SUNLOW.clone().lerp(SUNC,sm(0,.4,el)).lerp(GOLD,dayLock?.4:0));scene.fog.near=dayLock?110:230;scene.fog.far=dayLock?420:540;
   hemi.intensity=.22+.9*daylight*(1-.25*wet);hemi.color.copy(sky).lerp(C('#ffffff'),.3);
   sunBall.position.copy(sdir).multiplyScalar(220).add(camera.position);sunBall.visible=el>-.1;sunBall.lookAt(camera.position);
   moonBall.position.copy(mdir).multiplyScalar(220).add(camera.position);moonBall.visible=el<.1;moonBall.lookAt(camera.position);
@@ -1768,6 +1781,7 @@ $('pbtn').addEventListener('click',e=>{setPhoto(!photoOn);e.currentTarget.blur()
 $('snapb').addEventListener('click',e=>{snap();e.currentTarget.blur()});$('vfx').addEventListener('click',()=>setPhoto(false));
 $('shotx').addEventListener('click',()=>$('shot').style.display='none');
 
+for(const T of trees)if(T.type!=='cactus'&&hash(T.i*7,T.j*3)<.035){killTree(T);T.timer=rr(500,1200)} // a few dead standing trees from the start
 function frame(){
   requestAnimationFrame(frame);
   const rdt=Math.min(clock.getDelta(),.1);tReal+=rdt;
