@@ -268,7 +268,12 @@ const cx=i=>i-HALF+.5;
 const blocked=new Uint8Array(N*N);
 const inB=(i,j)=>i>=0&&j>=0&&i<N&&j<N;
 const cellH=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return inB(i,j)?H[i][j]:0};
-const groundY=(x,z)=>{const h=cellH(x,z);return h>=W?h:W-.15};
+// gentle slopes: the top of each land cell is four triangles whose corners meet the neighbours halfway (centre stays at the cell height)
+const CORN=new Float32Array(N*N*4);
+function surfOff(x,z){const i=Math.floor(x+HALF),j=Math.floor(z+HALF);if(!inB(i,j)||H[i][j]<W)return 0;const u=x+HALF-i-.5,v=z+HALF-j-.5,o=(i*N+j)*4;
+  if(Math.abs(v)>=Math.abs(u))return v<0?(-v-u)*CORN[o]+(-v+u)*CORN[o+1]:(v+u)*CORN[o+2]+(v-u)*CORN[o+3];
+  return u>0?(u-v)*CORN[o+1]+(u+v)*CORN[o+2]:(-u+v)*CORN[o+3]+(-u-v)*CORN[o]}
+const groundY=(x,z)=>{const h=cellH(x,z);return h>=W?h+surfOff(x,z):W-.15};
 const walk=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return i>=1&&j>=1&&i<N-1&&j<N-1&&H[i][j]>=W&&!blocked[i*N+j]};
 const isWater=(x,z)=>{const i=Math.floor(x+HALF),j=Math.floor(z+HALF);return i>=1&&j>=1&&i<N-1&&j<N-1&&H[i][j]<W};
 // Shared shader inputs: plants are coloured, hidden and swayed on the GPU, so seasons cost almost no CPU.
@@ -335,11 +340,17 @@ const SIDEC=C('#6e7a3e'),CH=16,NCH=Math.ceil(N/CH),chunkBuf=Array.from({length:N
 function quad(B,c0,r,u,col,nx,ny,nz){ // c0 centre, r half-right, u half-up
   const P=[[c0[0]-r[0]-u[0],c0[1]-r[1]-u[1],c0[2]-r[2]-u[2]],[c0[0]+r[0]-u[0],c0[1]+r[1]-u[1],c0[2]+r[2]-u[2]],[c0[0]+r[0]+u[0],c0[1]+r[1]+u[1],c0[2]+r[2]+u[2]],[c0[0]-r[0]+u[0],c0[1]-r[1]+u[1],c0[2]-r[2]+u[2]]];
   for(const k of[0,1,2,0,2,3]){B.p.push(...P[k]);B.n.push(nx,ny,nz);B.c.push(col.r,col.g,col.b)}}
+const CV=new Float32Array((N+1)*(N+1)).fill(NaN);
+for(let vi=0;vi<=N;vi++)for(let vj=0;vj<=N;vj++){let mn=99,mx=-99,sum=0,n=0;for(const a of[vi-1,vi])for(const b of[vj-1,vj])if(inB(a,b)){const h=H[a][b];mn=Math.min(mn,h);mx=Math.max(mx,h);sum+=h;n++}
+  if(n===4&&mn>=W&&mx-mn<=1)CV[vi*(N+1)+vj]=sum/4}
+for(let i=0;i<N;i++)for(let j=0;j<N;j++){const h=H[i][j];if(h<W)continue;[[i,j],[i+1,j],[i+1,j+1],[i,j+1]].forEach(([a,b],k)=>{const v=CV[a*(N+1)+b];CORN[(i*N+j)*4+k]=isNaN(v)?0:v-h})}
+const edgeFlat=(i,j,di,dj)=>{const c=di===1?[[i+1,j],[i+1,j+1]]:di===-1?[[i,j],[i,j+1]]:dj===1?[[i,j+1],[i+1,j+1]]:[[i,j],[i+1,j]];return c.every(([a,b])=>!isNaN(CV[a*(N+1)+b]))};
 for(let i=0;i<N;i++)for(let j=0;j<N;j++){
   const h=H[i][j],B=chunkBuf[Math.floor(i/CH)*NCH+Math.floor(j/CH)];
   if(h<W)quad(B,[cx(i),h,cx(j)],[.5,0,0],[0,0,-.5],WETSAND.clone().multiplyScalar(.86+vnoise(i*.3+ox,j*.3+oz)*.2),0,1,0);
   else{const bb=bioOf(i,j,h),dp=drop(i,j),rk=!trail[i*N+j]&&(h>=ALP||(h>=13&&dp>=2)||dp>=4);const t={idx:tops.length,kind:h===W?'sand':trail[i*N+j]||rk||bb==='desert'?'path':'grass',alp:h>=ALP,bb,fix:rk?rockCol(h,i,j):trail[i*N+j]?null:bb==='desert'?DUNEC:(bb==='swamp'&&h===W)?MUDC:null,tint:TINT[bb]?TINT[bb].c:null,ta:TINT[bb]?TINT[bb].a:0,jit:.86+vnoise(i*.3+ox,j*.3+oz)*.2+R(-.03,.03),snowR:h>=ALP?R(.0,.12):bb==='desert'?1.2:clamp(R(.03,.95)-Math.max(0,h-9)*.05,.01,1),lit:0,litC:C(pick(['#b8642a','#c98a2e','#9c4a22','#d0a040'])),i,j,wear:0,graze:0,burn:0};tops.push(t);topOf[i*N+j]=t;cellData[(j*N+i)*4+1]=Math.min(255,Math.round(t.snowR*255))}
   for(const[di,dj]of[[1,0],[-1,0],[0,1],[0,-1]]){const a=i+di,b=j+dj,nh=inB(a,b)?H[a][b]:0;
+    if(h>=W&&nh>=W&&h-nh===1&&edgeFlat(i,j,di,dj))continue; // that step is now a slope
     for(let y=Math.max(0,nh);y<h;y++){
       const col=h>=W&&(h>=12||h-nh>=3||y<h-3)?rockCol(y,i,j):y===h-1?(h<W?WETSAND:SIDEC).clone().multiplyScalar(R(.86,1)):(y>=h-3?DIRT:STONE).clone().multiplyScalar(R(.9,1.08));
       quad(B,[cx(i)+di*.5,y+.5,cx(j)+dj*.5],[dj*.5,0,-di*.5],[0,.5,0],col,di,0,dj)}}
@@ -350,7 +361,18 @@ for(let ci=0;ci<NCH;ci++)for(let cj=0;cj<NCH;cj++){const B=chunkBuf[ci*NCH+cj];i
   g.computeBoundingSphere();const m=new THREE.Mesh(g,sideMat);m.receiveShadow=true;scene.add(m)}
 chunkBuf.length=0;
 const capGeo=new THREE.PlaneGeometry(1,1);capGeo.rotateX(-Math.PI/2);
-const terrain=new THREE.InstancedMesh(capGeo,texMod(lamW(),'ground',TEX_GROUND),Math.max(1,tops.length));
+const slopeGeo=new THREE.BufferGeometry();
+slopeGeo.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,-.5,0,-.5,.5,0,-.5,.5,0,.5,-.5,0,.5],3));
+slopeGeo.setAttribute('normal',new THREE.Float32BufferAttribute([0,1,0,0,1,0,0,1,0,0,1,0,0,1,0],3));
+slopeGeo.setAttribute('aV',new THREE.Float32BufferAttribute([4,0,1,2,3],1));
+slopeGeo.setIndex([0,2,1,0,3,2,0,4,3,0,1,4]);
+{const a=new Float32Array(Math.max(1,tops.length)*4);tops.forEach((t,k)=>{for(let q=0;q<4;q++)a[k*4+q]=CORN[(t.i*N+t.j)*4+q]});slopeGeo.setAttribute('aCor',new THREE.InstancedBufferAttribute(a,4))}
+function slopeMod(mat){mat.customProgramCacheKey=()=>'slope';mat.onBeforeCompile=sh=>{
+  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>'+NL_+'attribute float aV;attribute vec4 aCor;')
+   .replace('#include <beginnormal_vertex>','vec3 q0=vec3(-.5,aCor.x,-.5),q1=vec3(.5,aCor.y,-.5),q2=vec3(.5,aCor.z,.5),q3=vec3(-.5,aCor.w,.5);vec3 n0=cross(q1,q0),n1=cross(q2,q1),n2=cross(q3,q2),n3=cross(q0,q3);vec3 objectNormal=normalize(aV>3.5?n0+n1+n2+n3:aV<.5?n3+n0:aV<1.5?n0+n1:aV<2.5?n1+n2:n2+n3);')
+   .replace('#include <begin_vertex>','vec3 transformed=vec3(position);transformed.y+=aV>3.5?0.:aV<.5?aCor.x:aV<1.5?aCor.y:aV<2.5?aCor.z:aCor.w;')};return mat}
+const NL_=String.fromCharCode(10);
+const terrain=new THREE.InstancedMesh(slopeGeo,texMod(slopeMod(lamW()),'ground',TEX_GROUND),Math.max(1,tops.length));
 {const m=new THREE.Matrix4(),w=C('#fff');tops.forEach((t,k)=>{m.makeTranslation(cx(t.i),H[t.i][t.j],cx(t.j));terrain.setMatrixAt(k,m);terrain.setColorAt(k,w)})}
 terrain.receiveShadow=true;terrain.castShadow=false;terrain.frustumCulled=false;scene.add(terrain);
 // water: one flat translucent quad per cell
@@ -545,7 +567,7 @@ for(const t of tops){let best=9;for(const tr of trees)if(tr.type!=='pine'){const
 
 // ---------- flowers & mushrooms ----------
 function smallSet(n,place,headSize,stemSize,colors,stemCol,win){
-  const items=[];for(let a=0;a<n*6&&items.length<n;a++){const p=place();if(p)items.push({...p,col:p.col||C(pick(colors)),on:R(win[0],win[1]),off:R(win[2],win[3]),vis:true})}
+  const items=[];for(let a=0;a<n*6&&items.length<n;a++){const p=place();if(p)items.push({...p,y:p.y+surfOff(p.x,p.z),col:p.col||C(pick(colors)),on:R(win[0],win[1]),off:R(win[2],win[3]),vis:true})}
   const head=new THREE.InstancedMesh(new THREE.BoxGeometry(...headSize),lamW(),Math.max(1,items.length));
   const stem=new THREE.InstancedMesh(new THREE.BoxGeometry(...stemSize),new THREE.MeshLambertMaterial({color:stemCol}),Math.max(1,items.length));
   const m=new THREE.Matrix4();items.forEach((f,k)=>{m.makeTranslation(f.x,f.y+stemSize[1]+headSize[1]/2,f.z);head.setMatrixAt(k,m);head.setColorAt(k,f.col);m.makeTranslation(f.x,f.y+stemSize[1]/2,f.z);stem.setMatrixAt(k,m)});
@@ -632,8 +654,8 @@ const blades=[];
    const n=reed?(rnd()<.5?RI(3,6):0):t.bb==='savanna'?(rnd()<.75?RI(3,6):0):t.bb==='meadow'?(rnd()<.7?RI(3,5):0):(rnd()<.5?RI(2,4):0);
    const tx=R(-.3,.3),tz=R(-.3,.3);
    for(let k=0;k<n;k++){const x=cx(t.i)+tx+R(-.13,.13),z=cx(t.j)+tz+R(-.13,.13),hg=reed?R(.8,1.35)*(t.bb==='swamp'?1.25:1):R(.2,.55)*(t.bb==='savanna'?R(1.6,2.4):1);
-     blades.push({m:new THREE.Matrix4().compose(v.set(x,H[t.i][t.j],z),q.setFromEuler(e.set(R(-.12,.12),R(0,6.28),R(-.12,.12)),'YXZ'),sc.set(reed?1.3:R(.8,1.3),hg,1)),t,reed,vis:true,c:(reed||t.bb!=='savanna')?new THREE.Color().setScalar(reed?R(.7,.85):R(.78,1.15)):new THREE.Color(1.25,1.0,.5).multiplyScalar(R(.85,1.1))});
-     if(reed&&rnd()<.3)reedTops.push({x,y:H[t.i][t.j]+hg-.05,z});}
+     blades.push({m:new THREE.Matrix4().compose(v.set(x,groundY(x,z),z),q.setFromEuler(e.set(R(-.12,.12),R(0,6.28),R(-.12,.12)),'YXZ'),sc.set(reed?1.3:R(.8,1.3),hg,1)),t,reed,vis:true,c:(reed||t.bb!=='savanna')?new THREE.Color().setScalar(reed?R(.7,.85):R(.78,1.15)):new THREE.Color(1.25,1.0,.5).multiplyScalar(R(.85,1.1))});
+     if(reed&&rnd()<.3)reedTops.push({x,y:groundY(x,z)+hg-.05,z});}
  }}
 chunkInst(bladeGeo,bladeMat,blades.map(b=>({m:b.m,c:b.c,i:b.t.i,j:b.t.j,reed:b.reed})),3,(it,a,q)=>{a[q*3]=it.i;a[q*3+1]=it.j;a[q*3+2]=it.reed?1:0},64,'blade');
 let ri=0;const cattails=smallSet(reedTops.length,()=>reedTops[ri++]||null,[.13,.32,.13],[.01,.01,.01],['#5a3a22','#6b4529'],'#5a3a22',[.9,1.2,3.3,3.6]);
@@ -645,7 +667,7 @@ const fernMat=shaderMod(new THREE.MeshLambertMaterial({color:'#4f9a3a'}),'fern',
 const fronds=[];
 for(let a=0,n=0;a<5000&&n<620;a++){const t=pick(trees);const i=t.i+RI(-2,2),j=t.j+RI(-2,2);if(!inB(i,j)||H[i][j]<=W||blocked[i*N+j]||trail[i*N+j])continue;n++;
   const x=cx(i)+R(-.3,.3),z=cx(j)+R(-.3,.3),nf=RI(4,6),y0=R(0,6.28),sz=R(.7,1.2);
-  for(let k=0;k<nf;k++){const d=new THREE.Object3D();d.position.set(x,H[i][j]+.04,z);d.rotation.set(-R(.35,.7),y0+k*6.28/nf+R(-.2,.2),0,'YXZ');d.scale.setScalar(sz);d.updateMatrix();fronds.push(d.matrix.clone())}}
+  for(let k=0;k<nf;k++){const d=new THREE.Object3D();d.position.set(x,groundY(x,z)+.04,z);d.rotation.set(-R(.35,.7),y0+k*6.28/nf+R(-.2,.2),0,'YXZ');d.scale.setScalar(sz);d.updateMatrix();fronds.push(d.matrix.clone())}}
 {const v=new THREE.Vector3();chunkInst(frondGeo,fernMat,fronds.map(m=>{v.setFromMatrixPosition(m);return{m,c:new THREE.Color().setScalar(R(.75,1.15)),i:Math.floor(v.x+HALF),j:Math.floor(v.z+HALF)}}),2,(it,a,q)=>{a[q*2]=it.i;a[q*2+1]=it.j},100,'fern')}
 const BL={dry:C('#a89a68'),sp:C('#8ad655'),su:C('#5aa83d'),au:C('#c2a64a')};
 WU.uSnowC.value.set(SNOW.r,SNOW.g,SNOW.b);
@@ -1111,7 +1133,7 @@ const MOSSC=C('#3f7a34'),MUDG=C('#6b5b3d'),PEB=C('#8d8d88');
   if(h===W&&t.bb==='swamp')t.mud=.5}
  for(const T of trees){if(T.bush)continue;for(let a=-2;a<=2;a++)for(let b=-2;b<=2;b++){const t=topOf[(T.i+a)*N+T.j+b];if(!t)continue;const d=Math.max(Math.abs(a),Math.abs(b));t.ao*=d<=1?.84:.93;if(d<=2&&t.kind==='grass'&&hash(t.i*3,t.j*5)<(t.bb==='swamp'||t.bb==='taiga'?.55:.22))t.moss=Math.min(1,t.moss+.45)}}
  const peb=[];for(const t of tops){if(t.kind==='path'&&t.fix)continue;const wetEdge=t.mud>.3||t.kind==='sand';if((wetEdge&&rnd()<.16)||(t.kind==='path'&&!t.fix&&rnd()<.05)){for(let k=0,n=RI(1,3);k<n;k++){const z=R(.07,.15);peb.push([cx(t.i)+R(-.4,.4),H[t.i][t.j]+z*.3,cx(t.j)+R(-.4,.4),z*R(1,1.6),z*.6,z*R(1,1.5),PEB.clone().multiplyScalar(R(.75,1.15))])}}}
- if(peb.length){const m=boxMesh(peb,lamW());m.castShadow=false}}
+ if(peb.length){const m=(peb.forEach(q=>{q[1]+=surfOff(q[0],q[2])}),boxMesh)(peb,lamW());m.castShadow=false}}
 const tca=terrain.instanceColor.array;
 let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454'),GRAZED=C('#a2a457');
 function paintTop(t){
@@ -1429,7 +1451,7 @@ for(let i=0;i<N;i++)for(let j=0;j<N;j++)solidTop[i*N+j]=H[i][j]+(blocked[i*N+j]?
 for(const t of trees)solidTop[t.i*N+t.j]=H[t.i][t.j]+40;
 for(const d of deckList)solidTop[d.i*N+d.j]=d.top;
 for(const[x,y,z,sz]of rockList){const i=Math.floor(x+HALF),j=Math.floor(z+HALF);if(inB(i,j))solidTop[i*N+j]=Math.max(solidTop[i*N+j],y+sz/2)}
-const PR=.3,PH=1.8,EYE=1.62,STEP=.6,GRAV=32,JUMP=9,SURF=W-.2;
+const PR=.3,PH=1.8,EYE=1.62,STEP=1.05,GRAV=32,JUMP=9,SURF=W-.2;
 let stepAcc=0,wasGround=true,lastVy=0;
 function surfaceAt(P){const i=Math.floor(P.x+HALF),j=Math.floor(P.z+HALF),t=inB(i,j)?topOf[i*N+j]:null,s=season();
   if(isWater(P.x,P.z)&&iceAmt(s)<.5)return'water';if(P.y>cellH(P.x,P.z)+.3)return'wood';if(!t)return'path';if(snowAmt(s)>t.snowR)return'snow';if(t.lit*litter(s)>.3)return'leaves';return t.kind==='grass'?'grass':'path'}
@@ -1437,7 +1459,7 @@ const keys=new Set();let lastSp=0,stepOff=0,eyeH=1.62,fly=false,flyV=new THREE.V
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
 function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
-  let g=-9;for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++){const t=topAt(i,j);if(t<=feet+STEP+1e-3)g=Math.max(g,t)}
+  let g=-9;for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++){let t=topAt(i,j);if(inB(i,j)&&t===H[i][j])t+=surfOff(clamp(x,i-HALF+.001,i-HALF+.999),clamp(z,j-HALF+.001,j-HALF+.999));if(t<=feet+STEP+1e-3)g=Math.max(g,t)}
   return g}
 function hits(x,z,feet,lim){ // does the footprint at (x,z) overlap a column taller than feet+lim?
   for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++)if(topAt(i,j)>feet+lim)return true;
