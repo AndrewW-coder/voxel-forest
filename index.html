@@ -171,7 +171,7 @@ function resize(){renderer.setPixelRatio(1);renderer.setSize(Math.max(1,Math.rou
 addEventListener('resize',resize);resize();
 
 const hemi=new THREE.HemisphereLight('#cfe8ff','#4a5a3a',1.1);scene.add(hemi);
-const sun=new THREE.DirectionalLight('#fff4dd',2.6);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+const sun=new THREE.DirectionalLight('#fff4dd',2.6);sun.castShadow=true;sun.shadow.mapSize.set(1536,1536);
 Object.assign(sun.shadow.camera,{left:-66,right:66,top:66,bottom:-66,near:1,far:260});sun.shadow.normalBias=.04;
 scene.add(sun,sun.target);
 scene.fog=new THREE.Fog('#9ed3f2',230,540);
@@ -291,7 +291,8 @@ function shaderMod(mat,key,head,begin,afterColor){
 // procedural surface texture: cheap world-space noise added in the fragment shader (no image files)
 const TEX_GLSL=`varying vec3 vWp;
 float h31(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}
-float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}`;
+float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}
+float vb(vec3 p){return h31(floor(p));}`;
 function texMod(mat,key,code,leaf){const prev=mat.onBeforeCompile,base=mat.customProgramCacheKey();
   mat.customProgramCacheKey=()=>base+key;
   mat.onBeforeCompile=(sh,r)=>{if(prev)prev.call(mat,sh,r);
@@ -302,12 +303,12 @@ const TEX_GROUND='{float a=vn(vWp*1.1),b=vn(vec3(vWp.x*15.,vWp.y*2.,vWp.z*15.)),
 const TEX_SIDE='{float a=vn(vec3(vWp.x*2.5,vWp.y*5.5,vWp.z*2.5)),b=vn(vWp*11.);diffuseColor.rgb*=.76+.26*a+.16*b;}';
 const TEX_BARK='{float a=vn(vec3(vWp.x*11.,vWp.y*1.3,vWp.z*11.)),b=vn(vec3(vWp.x*28.,vWp.y*3.,vWp.z*28.));diffuseColor.rgb*=.66+.42*a+.18*b;}';
 const TEX_LEAF=`{vec3 qp=floor(vWp*6.)/6.; // small square pixels, like a block-game leaf texture
- float k=vKs,a=vn(qp*5.5),c=h31(floor(vWp*6.)),m=.8+.28*a+.2*(c-.5);
- if(k>4.5&&k<5.5)m=.68+.5*vn(vec3(qp.x*18.,qp.y*5.,qp.z*18.))+.14*(c-.5); // needles
- else if(k>3.5&&k<4.5)m=.76+.36*vn(vec3(qp.x*7.,qp.y*.9,qp.z*7.))+.1*(c-.5); // drooping strands
+ float k=vKs,a=vb(vWp*2.3),c=h31(floor(vWp*6.)),m=.8+.28*a+.2*(c-.5);
+ if(k>4.5&&k<5.5)m=.68+.5*vb(vec3(qp.x*18.,qp.y*5.,qp.z*18.))+.14*(c-.5); // needles
+ else if(k>3.5&&k<4.5)m=.76+.36*vb(vec3(qp.x*7.,qp.y*.9,qp.z*7.))+.1*(c-.5); // drooping strands
  else if(k>2.5&&k<3.5)m=.92+.14*a+(c>.82?.32:0.)-(c<.1?.12:0.); // blossom pixels
- else if(k>1.5&&k<2.5)m=.82+.22*vn(qp*9.)+(c>.88?.26:0.)-(c<.1?.14:0.); // birch flecks
- else if(k<.5)m=.74+.4*vn(qp*3.2)+.2*(c-.5)-(c<.08?.16:0.); // oak: masses with dark pixel gaps
+ else if(k>1.5&&k<2.5)m=.82+.22*vb(qp*9.)+(c>.88?.26:0.)-(c<.1?.14:0.); // birch flecks
+ else if(k<.5)m=.74+.4*vb(qp*3.2)+.2*(c-.5)-(c<.08?.16:0.); // oak: masses with dark pixel gaps
  diffuseColor.rgb*=m;}`;
 const TEX_ROCK='{float a=vn(vWp*4.),b=vn(vWp*13.);diffuseColor.rgb*=.74+.3*a+.18*b;}';
 // a winding trail across the land: the cheapest walkable route between two far-apart points (kind to slopes, shy of rock, willing to bridge a narrow stretch of water)
@@ -552,7 +553,11 @@ for(let a=0,n=0;a<12000&&n<300;a++){
     if(berry&&top&&rnd()<.55)berrySpots.push({x:x+dx*.5+R(-.15,.15),y:h+dy*.5+.48,z:z+dz*.5+R(-.15,.15),bush})}
   bush.l1=leaves.length;for(let k=bush.l0;k<bush.l1;k++)leaves[k].tr=bush;
 }
-const trunkGeo=new THREE.CylinderGeometry(.5,.5,1,8,1);
+const trunkGeo=new THREE.CylinderGeometry(.5,.5,1,8,1,true); // open-ended: the ends are buried in ground, leaves or branches
+{const P=trunkGeo.attributes.position,Nn=trunkGeo.attributes.normal,ix=[...trunkGeo.index.array],n0=P.count,pos=[...P.array],nor=[...Nn.array],uv=[...trunkGeo.attributes.uv.array];
+ pos.push(0,.5,0);nor.push(0,1,0);uv.push(.5,.5);for(let k=0;k<=8;k++){const a=k/8*Math.PI*2;pos.push(Math.sin(a)*.5,.5,Math.cos(a)*.5);nor.push(0,1,0);uv.push(.5,.5)}
+ for(let k=0;k<8;k++)ix.push(n0,n0+1+k,n0+1+k+1);
+ trunkGeo.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));trunkGeo.setAttribute('normal',new THREE.Float32BufferAttribute(nor,3));trunkGeo.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));trunkGeo.setIndex(ix)} // plus a top cap so snags and stumps are not hollow
 const trunks=new THREE.InstancedMesh(trunkGeo,texMod(lamW(),'bark',TEX_BARK),trunkList.length);
 {const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();trunkList.forEach((b,k)=>{m.compose(v.set(b[0],b[1],b[2]),b[7],sc.set(b[4],b[5],b[6]));trunks.setMatrixAt(k,m);trunks.setColorAt(k,b[3])})}
 trunks.castShadow=trunks.receiveShadow=true;scene.add(trunks);
@@ -1478,10 +1483,12 @@ const keys=new Set();let lastSp=0,stepOff=0,eyeH=1.62,fly=false,flyV=new THREE.V
 const saved={pos:new THREE.Vector3(),tgt:new THREE.Vector3()};
 function topAt(i,j){return inB(i,j)?solidTop[i*N+j]:99}
 function groundUnder(x,z,feet){ // highest column top under the player's footprint that they can stand on
-  let g=-9;for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++){let t=topAt(i,j);if(inB(i,j)&&t===H[i][j])t+=surfOff(clamp(x,i-HALF+.001,i-HALF+.999),clamp(z,j-HALF+.001,j-HALF+.999));if(t<=feet+STEP+1e-3)g=Math.max(g,t)}
+  let g=-9;for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++){const t=colTop(i,j,x,z);if(t<=feet+STEP+1e-3)g=Math.max(g,t)}
   return g}
+function colTop(i,j,x,z){ // height of the walkable surface of a column nearest the player: sloped ground follows the ramp, everything else is its solid top
+  const t=topAt(i,j);return inB(i,j)&&t===H[i][j]?t+surfOff(clamp(x,i-HALF+.001,i-HALF+.999),clamp(z,j-HALF+.001,j-HALF+.999)):t}
 function hits(x,z,feet,lim){ // does the footprint at (x,z) overlap a column taller than feet+lim?
-  for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++)if(topAt(i,j)>feet+lim)return true;
+  for(let i=Math.floor(x-PR+HALF);i<=Math.floor(x+PR-1e-4+HALF);i++)for(let j=Math.floor(z-PR+HALF);j<=Math.floor(z+PR-1e-4+HALF);j++)if(colTop(i,j,x,z)>feet+lim)return true;
   return false}
 function spawnPoint(){for(let r=2;r<HALF;r++)for(let k=0;k<40;k++){const a=k/40*Math.PI*2,x=Math.round(Math.cos(a)*r)+.5,z=Math.round(Math.sin(a)*r)+.5;if(walk(x,z)&&!hits(x,z,cellH(x,z),.01))return[x,z]}return[.5,.5]}
 function setPov(on){
@@ -1562,11 +1569,11 @@ function updatePlayer(dt){
   if(sitting&&(fw||st||k('Space')))setSit(false);player.stalk=sneak||sitting;
   let mx=0,mz=0;if(fw||st){const l=Math.hypot(fw,st),sx=Math.sin(yaw),cz=Math.cos(yaw);mx=(-sx*fw+cz*st)/l*sp*dt;mz=(-cz*fw-sx*st)/l*sp*dt}
   // horizontal moves, one axis at a time; small ledges (≤0.6) are stepped up, like slabs and paths
-  const lim=onGround?STEP:inWater?.45:.01,B=HALF-PR-.05;let hop=false;
+  const lim=onGround?STEP:inWater?.45:.4,B=HALF-PR-.05;let hop=false;
   for(const ax of['x','z']){const d=ax==='x'?mx:mz;if(!d)continue;const nx=ax==='x'?Math.max(-B,Math.min(B,P.x+d)):P.x,nz=ax==='z'?Math.max(-B,Math.min(B,P.z+d)):P.z;
     if(hits(nx,nz,P.y,lim)){if(inWater&&!hits(nx,nz,P.y,2.5))hop=true;continue} // a bank within reach: hop out of the water
     if(sneak&&onGround&&groundUnder(nx,nz,P.y)<P.y-.6)continue; // sneaking keeps you from walking off edges
-    P.x=nx;P.z=nz;const g=groundUnder(P.x,P.z,P.y);if(onGround&&g>P.y){stepOff+=P.y-g;P.y=g}}
+    P.x=nx;P.z=nz;const g=groundUnder(P.x,P.z,P.y);if(onGround&&vy<=0&&g>-9&&(g>P.y||P.y-g<=.6)){stepOff+=P.y-g;P.y=g}} // walking uphill steps up, downhill stays glued to the slope
   // vertical: gravity, jumping, swimming
   if(inWater){vy-=GRAV*.25*dt;vy*=Math.pow(.2,dt);if(k('Space'))vy=Math.min(vy+GRAV*.6*dt,3.2);}
   else{vy-=GRAV*dt;if(k('Space')&&onGround)vy=JUMP}
