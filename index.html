@@ -292,16 +292,22 @@ function shaderMod(mat,key,head,begin,afterColor){
 const TEX_GLSL=`varying vec3 vWp;
 float h31(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}
 float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}`;
-function texMod(mat,key,code){const prev=mat.onBeforeCompile,base=mat.customProgramCacheKey();
+function texMod(mat,key,code,leaf){const prev=mat.onBeforeCompile,base=mat.customProgramCacheKey();
   mat.customProgramCacheKey=()=>base+key;
   mat.onBeforeCompile=(sh,r)=>{if(prev)prev.call(mat,sh,r);
-    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+'varying vec3 vWp;').replace('#include <project_vertex>','#include <project_vertex>'+String.fromCharCode(10)+'vec4 wq=vec4(transformed,1.);'+String.fromCharCode(10)+'#ifdef USE_INSTANCING'+String.fromCharCode(10)+'wq=instanceMatrix*wq;'+String.fromCharCode(10)+'#endif'+String.fromCharCode(10)+'vWp=(modelMatrix*wq).xyz;');
-    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+TEX_GLSL).replace('#include <color_fragment>','#include <color_fragment>'+String.fromCharCode(10)+code)};
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+'varying vec3 vWp;'+(leaf?'varying float vKs;':'')).replace('#include <project_vertex>','#include <project_vertex>'+String.fromCharCode(10)+'vec4 wq=vec4(transformed,1.);'+String.fromCharCode(10)+'#ifdef USE_INSTANCING'+String.fromCharCode(10)+'wq=instanceMatrix*wq;'+String.fromCharCode(10)+'#endif'+String.fromCharCode(10)+'vWp=(modelMatrix*wq).xyz;'+(leaf?'vKs=aK;':''));
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+TEX_GLSL+(leaf?'varying float vKs;':'')).replace('#include <color_fragment>','#include <color_fragment>'+String.fromCharCode(10)+code)};
   return mat}
 const TEX_GROUND='{float a=vn(vWp*1.1),b=vn(vec3(vWp.x*15.,vWp.y*2.,vWp.z*15.)),c=h31(floor(vWp*9.));diffuseColor.rgb*=.8+.2*a+.2*b+.1*(c-.5);}';
 const TEX_SIDE='{float a=vn(vec3(vWp.x*2.5,vWp.y*5.5,vWp.z*2.5)),b=vn(vWp*11.);diffuseColor.rgb*=.76+.26*a+.16*b;}';
 const TEX_BARK='{float a=vn(vec3(vWp.x*11.,vWp.y*1.3,vWp.z*11.)),b=vn(vec3(vWp.x*28.,vWp.y*3.,vWp.z*28.));diffuseColor.rgb*=.66+.42*a+.18*b;}';
-const TEX_LEAF='{float a=vn(vWp*5.5),c=h31(floor(vWp*13.));diffuseColor.rgb*=.78+.32*a+.14*(c-.5);}';
+const TEX_LEAF=`{float k=vKs,a=vn(vWp*5.5),c=h31(floor(vWp*13.)),m=.78+.32*a+.14*(c-.5);
+ if(k>4.5&&k<5.5)m=.62+.55*vn(vec3(vWp.x*22.,vWp.y*5.,vWp.z*22.))+.12*(c-.5); // needles
+ else if(k>3.5&&k<4.5)m=.74+.4*vn(vec3(vWp.x*7.,vWp.y*.9,vWp.z*7.)); // drooping strands
+ else if(k>2.5&&k<3.5)m=.9+.18*a+(h31(floor(vWp*17.))>.8?.4:0.); // blossom flecks
+ else if(k>1.5&&k<2.5)m=.8+.25*vn(vWp*9.)+(h31(floor(vWp*15.))>.86?.3:0.); // birch flecks
+ else if(k<.5)m=.7+.45*vn(vWp*3.2)+.15*(c-.5); // oak: broad dark and light masses
+ diffuseColor.rgb*=m;}`;
 const TEX_ROCK='{float a=vn(vWp*4.),b=vn(vWp*13.);diffuseColor.rgb*=.74+.3*a+.18*b;}';
 // a winding trail across the land: the cheapest walkable route between two far-apart points (kind to slopes, shy of rock, willing to bridge a narrow stretch of water)
 const trail=new Uint8Array(N*N),deckList=[],pathSet=new Set();
@@ -433,17 +439,19 @@ if(deckList.length){const items=[],dset=new Set(deckList.map(d=>d.i*N+d.j)),wood
 
 // ---------- trees ----------
 const LEAF={
-  oak:{sp:C('#7ccf4f'),su:C('#3f8f32'),spr:[.45,1.1],au:['#c9611f','#b8431c','#d89a2a','#9c5a1e']},
-  maple:{sp:C('#8bd456'),su:C('#479a38'),spr:[.45,1.1],au:['#d4302a','#e0452b','#b8202a','#f07b2a']},
-  birch:{sp:C('#b2e070'),su:C('#67b03f'),spr:[.45,1.1],au:['#f2c838','#e8b02c','#f7dc5a']},
+  oak:{sp:C('#6fc24a'),su:C('#2e7d2a'),spr:[.45,1.1],au:['#c9611f','#b8431c','#d89a2a','#9c5a1e']},
+  maple:{sp:C('#a2dc52'),su:C('#62b43a'),spr:[.45,1.1],au:['#d4302a','#e0452b','#b8202a','#f07b2a']},
+  birch:{sp:C('#c8ea7a'),su:C('#a2d450'),spr:[.45,1.1],au:['#f2c838','#e8b02c','#f7dc5a']},
   cherry:{sp:C('#f6b3cd'),su:C('#4e9a3c'),spr:[.32,.68],au:['#c9573a','#d9884a','#b8452f']},
 };
 LEAF.acacia={sp:C('#a9bf4a'),su:C('#8aa538'),spr:[.45,1.1],au:['#c8b04a','#b89a3c','#d2a83c']};
-LEAF.willow={sp:C('#a2d25c'),su:C('#62a044'),spr:[.45,1.1],au:['#d8c24a','#c9a53a','#b8a040']};
+LEAF.willow={sp:C('#bcdc82'),su:C('#8fb862'),spr:[.45,1.1],au:['#d8c24a','#c9a53a','#b8a040']};
 LEAF.bush={sp:C('#79c24c'),su:C('#3d7f2e'),spr:[.45,1.1],au:['#a0451f','#c06a2a','#8a5a20','#b8862a']};
 const trees=[],trunkList=[],leaves=[];
 const TVAR=[[1,1,1],[1,1,1],[1.14,1.03,.8],[.88,1.04,1.12],[1.06,.9,.9],[.94,1.12,.84],[1.1,1.1,.7]],TW={oak:.95,maple:.8,birch:.5,cherry:.7,willow:.75,pine:.72,acacia:.6,palm:.5};
-const LSC={pine:[1.05,.7,1.05],oak:[1.15,1.05,1.15],maple:[1,1,1],birch:[.85,.9,.85],cherry:[.95,.8,.95],willow:[.8,1.35,.8],acacia:[1.1,.7,1.1],palm:[1.3,.5,1.3],bush:[.9,.9,.9]};
+// every species has its own leaf shape: oak = fat blobs, maple = medium blobs, birch = small flecks, cherry = flat puffs, willow = hanging strands, pine = tiered plates, acacia = broad plates, palm = blades
+const LSC={oak:[1.25,1.05,1.25],maple:[1,.85,1],birch:[.62,.8,.62],cherry:[1.25,.55,1.25],willow:[.4,2,.4],pine:[1.6,.38,1.6],acacia:[1.9,.38,1.9],palm:[2.3,.3,.7],bush:[.9,.9,.9]};
+const LTILT={cherry:.3,willow:.3,pine:.22,acacia:.12,palm:.6},LID={oak:0,maple:1,birch:2,cherry:3,willow:4,pine:5,acacia:6,palm:7,bush:8};
 const BARK={acacia:'#7a5a38',willow:'#5d4a33',palm:'#8a6a44',cactus:'#3f8a3f',pine:'#5b3b24',oak:'#6b4a2f',maple:'#6e4a33',cherry:'#5a3a2e',birch:'#e9e5da'};
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
 const QV=new THREE.Quaternion(),QX=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2),QZ=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);
@@ -451,8 +459,8 @@ const QV=new THREE.Quaternion(),QX=new THREE.Quaternion().setFromAxisAngle(new T
 const tpush=(x,y,z,c,sx=1,sy=1,sz=1)=>{if(sx>sy*1.3&&sx>sz)trunkList.push([x,y,z,c,sy*1.1,sx,sz*1.1,QZ]);else if(sz>sy*1.3&&sz>sx)trunkList.push([x,y,z,c,sx*1.1,sz,sy*1.1,QX]);else trunkList.push([x,y,z,c,sx*1.12,sy,sz*1.12,QV])};
 function mkLeaf(type,x,y,z,sc,top,hf){
   const L={x,y,z,sc,type,dec:type!=='pine'&&type!=='palm',th:rnd(),jit:R(-.15,.15),sh:R(.9,1.06)*(.72+.36*hf)+(top?.06:0),vis:true,top};
-  if(L.dec)L.au=C(pick(LEAF[type].au));else L.base=C(type==='palm'?pick(['#3f8a3a','#4a9a3f']):rnd()<.5?'#2f6438':'#285a32').multiplyScalar(L.sh);
-  const k1=Math.round(x*100),k2=Math.round(z*100+y*37);L.q=new THREE.Quaternion().setFromEuler(LEu.set(hash(k1,k2)*6.28,hash(k2,k1+5)*6.28,hash(k1+9,k2+3)*6.28));const f=LSC[type]||[1,1,1];L.a=(.88+.3*hash(k1+1,k2))*f[0];L.b=(.88+.3*hash(k1,k2+1))*f[1];L.c=(.88+.3*hash(k1+2,k2+2))*f[2];
+  if(L.dec)L.au=C(pick(LEAF[type].au));else L.base=C(type==='palm'?pick(['#3f8a3a','#4a9a3f']):rnd()<.5?'#245a4c':'#2b6650').multiplyScalar(L.sh);
+  const k1=Math.round(x*100),k2=Math.round(z*100+y*37);const tl=LTILT[type];L.q=new THREE.Quaternion().setFromEuler(tl?LEu.set((hash(k1,k2)-.5)*2*tl,hash(k2,k1+5)*6.28,(hash(k1+9,k2+3)-.5)*2*tl,'YXZ'):LEu.set(hash(k1,k2)*6.28,hash(k2,k1+5)*6.28,hash(k1+9,k2+3)*6.28,'XYZ'));const f=LSC[type]||[1,1,1];L.a=(.88+.3*hash(k1+1,k2))*f[0];L.b=(.88+.3*hash(k1,k2+1))*f[1];L.c=(.88+.3*hash(k1+2,k2+2))*f[2];
   leaves.push(L);return L;
 }
 const LEu=new THREE.Euler(),LV=new THREE.Vector3(),LS=new THREE.Vector3();
@@ -549,20 +557,20 @@ const trunks=new THREE.InstancedMesh(trunkGeo,texMod(lamW(),'bark',TEX_BARK),tru
 trunks.castShadow=trunks.receiveShadow=true;scene.add(trunks);
 // leaves of a growing tree are scaled towards its base
 const leafM=(L,m)=>{const T=L.tr,g=T?T.g:1;if(g>=1)return m.compose(LV.set(L.x,L.y,L.z),L.q,LS.set(L.sc*L.a,L.sc*L.b,L.sc*L.c));const q=L.sc*Math.max(.02,g);return m.compose(LV.set(T.x+(L.x-T.x)*g,T.base+(L.y-T.base)*g,T.z+(L.z-T.z)*g),L.q,LS.set(q*L.a,q*L.b,q*L.c))};
-const LEAF_GLSL=`attribute vec3 aSp;attribute vec3 aSu;attribute vec3 aAu;attribute vec4 aP;attribute vec4 aQ;attribute vec2 aT;
+const LEAF_GLSL=`attribute vec3 aSp;attribute vec3 aSu;attribute vec3 aAu;attribute vec4 aP;attribute vec4 aQ;attribute vec2 aT;attribute float aK;
 bool leafHidden(){return aT.y>.5||(aP.w>.5&&aP.y>=uFol);}
 vec3 leafCol(){vec3 c;if(aP.w>.5){float ls=uS+aP.x;if(ls>3.5)ls-=4.;c=mix(aSp,aSu,smoothstep(aQ.x,aQ.y,ls));c=mix(c,aAu,smoothstep(1.85,2.4,ls))*aP.z;}
  else{c=aSp;if(aQ.z>.5&&uSnow>aP.y*.9)c=uSnowC;}return mix(c,vec3(.012,.01,.008),aT.x);}`;
 const LEAF_BEGIN=`vec3 transformed=vec3(position);if(leafHidden())transformed=vec3(0.);else{vec3 ip=instanceMatrix[3].xyz;float ph=uTime*1.4+ip.x*.31+ip.z*.23+ip.y*.17;transformed.x+=sin(ph)*uWind*.05;transformed.z+=cos(ph*.8)*uWind*.035;}`;
 const leafGeo=new THREE.OctahedronGeometry(.8,0).toNonIndexed();
 {const P=leafGeo.attributes.position,Nn=leafGeo.attributes.normal,v=new THREE.Vector3();for(let k=0;k<P.count;k++){v.fromBufferAttribute(P,k).normalize();Nn.setXYZ(k,v.x,v.y,v.z)}} // round shading on a leafy clump
-{const n=leaves.length,sp=new Float32Array(n*3),su=new Float32Array(n*3),au=new Float32Array(n*3),P=new Float32Array(n*4),Q=new Float32Array(n*4),T=new Float32Array(n*2);
+{const n=leaves.length,KA=new Float32Array(n),sp=new Float32Array(n*3),su=new Float32Array(n*3),au=new Float32Array(n*3),P=new Float32Array(n*4),Q=new Float32Array(n*4),T=new Float32Array(n*2);
  const tc=new THREE.Color();leaves.forEach((L,k)=>{const T=L.tr;if(L.dec){const D=LEAF[L.type],tn=T&&T.tn;tc.copy(D.sp);if(tn)tc.multiply(tn);tc.toArray(sp,k*3);tc.copy(D.su);if(tn)tc.multiply(tn);tc.toArray(su,k*3);tc.copy(L.au);if(T&&T.au)tc.lerp(T.au,.75);tc.toArray(au,k*3);Q[k*4]=D.spr[0];Q[k*4+1]=D.spr[1]}else{tc.copy(L.base);if(T&&T.tn)tc.multiply(T.tn);tc.toArray(sp,k*3);Q[k*4]=0;Q[k*4+1]=1}
-   P[k*4]=L.jit+(T?T.off:0);P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
+   KA[k]=LID[L.type]??8;P[k*4]=L.jit+(T?T.off:0);P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
  const IA=(a,s)=>new THREE.InstancedBufferAttribute(a,s);
- leafGeo.setAttribute('aSp',IA(sp,3));leafGeo.setAttribute('aSu',IA(su,3));leafGeo.setAttribute('aAu',IA(au,3));leafGeo.setAttribute('aP',IA(P,4));leafGeo.setAttribute('aQ',IA(Q,4));
+ leafGeo.setAttribute('aK',IA(KA,1));leafGeo.setAttribute('aSp',IA(sp,3));leafGeo.setAttribute('aSu',IA(su,3));leafGeo.setAttribute('aAu',IA(au,3));leafGeo.setAttribute('aP',IA(P,4));leafGeo.setAttribute('aQ',IA(Q,4));
  const at=IA(T,2);at.setUsage(THREE.DynamicDrawUsage);leafGeo.setAttribute('aT',at)}
-const leafMesh=new THREE.InstancedMesh(leafGeo,texMod(shaderMod(lamW(),'leaf',LEAF_GLSL,LEAF_BEGIN,'vColor=leafCol();'),'leaftex',TEX_LEAF),leaves.length);
+const leafMesh=new THREE.InstancedMesh(leafGeo,texMod(shaderMod(lamW(),'leaf',LEAF_GLSL,LEAF_BEGIN,'vColor=leafCol();'),'leaftex',TEX_LEAF,true),leaves.length);
 {const m=new THREE.Matrix4(),w=C('#fff');leaves.forEach((L,k)=>{leafMesh.setMatrixAt(k,leafM(L,m));leafMesh.setColorAt(k,w)})}
 leafMesh.customDepthMaterial=shaderMod(new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking}),'leafDepth',LEAF_GLSL,LEAF_BEGIN);
 leafMesh.castShadow=leafMesh.receiveShadow=true;scene.add(leafMesh);
