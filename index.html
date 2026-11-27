@@ -442,6 +442,8 @@ LEAF.acacia={sp:C('#a9bf4a'),su:C('#8aa538'),spr:[.45,1.1],au:['#c8b04a','#b89a3
 LEAF.willow={sp:C('#a2d25c'),su:C('#62a044'),spr:[.45,1.1],au:['#d8c24a','#c9a53a','#b8a040']};
 LEAF.bush={sp:C('#79c24c'),su:C('#3d7f2e'),spr:[.45,1.1],au:['#a0451f','#c06a2a','#8a5a20','#b8862a']};
 const trees=[],trunkList=[],leaves=[];
+const TVAR=[[1,1,1],[1,1,1],[1.14,1.03,.8],[.88,1.04,1.12],[1.06,.9,.9],[.94,1.12,.84],[1.1,1.1,.7]],TW={oak:.95,maple:.8,birch:.5,cherry:.7,willow:.75,pine:.72,acacia:.6,palm:.5};
+const LSC={pine:[1.05,.7,1.05],oak:[1.15,1.05,1.15],maple:[1,1,1],birch:[.85,.9,.85],cherry:[.95,.8,.95],willow:[.8,1.35,.8],acacia:[1.1,.7,1.1],palm:[1.3,.5,1.3],bush:[.9,.9,.9]};
 const BARK={acacia:'#7a5a38',willow:'#5d4a33',palm:'#8a6a44',cactus:'#3f8a3f',pine:'#5b3b24',oak:'#6b4a2f',maple:'#6e4a33',cherry:'#5a3a2e',birch:'#e9e5da'};
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
 const QV=new THREE.Quaternion(),QX=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2),QZ=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);
@@ -450,7 +452,7 @@ const tpush=(x,y,z,c,sx=1,sy=1,sz=1)=>{if(sx>sy*1.3&&sx>sz)trunkList.push([x,y,z
 function mkLeaf(type,x,y,z,sc,top,hf){
   const L={x,y,z,sc,type,dec:type!=='pine'&&type!=='palm',th:rnd(),jit:R(-.15,.15),sh:R(.9,1.06)*(.72+.36*hf)+(top?.06:0),vis:true,top};
   if(L.dec)L.au=C(pick(LEAF[type].au));else L.base=C(type==='palm'?pick(['#3f8a3a','#4a9a3f']):rnd()<.5?'#2f6438':'#285a32').multiplyScalar(L.sh);
-  const k1=Math.round(x*100),k2=Math.round(z*100+y*37);L.q=new THREE.Quaternion().setFromEuler(LEu.set(hash(k1,k2)*6.28,hash(k2,k1+5)*6.28,hash(k1+9,k2+3)*6.28));L.a=.88+.3*hash(k1+1,k2);L.b=.88+.3*hash(k1,k2+1);L.c=.88+.3*hash(k1+2,k2+2);
+  const k1=Math.round(x*100),k2=Math.round(z*100+y*37);L.q=new THREE.Quaternion().setFromEuler(LEu.set(hash(k1,k2)*6.28,hash(k2,k1+5)*6.28,hash(k1+9,k2+3)*6.28));const f=LSC[type]||[1,1,1];L.a=(.88+.3*hash(k1+1,k2))*f[0];L.b=(.88+.3*hash(k1,k2+1))*f[1];L.c=(.88+.3*hash(k1+2,k2+2))*f[2];
   leaves.push(L);return L;
 }
 const LEu=new THREE.Euler(),LV=new THREE.Vector3(),LS=new THREE.Vector3();
@@ -480,7 +482,8 @@ for(let a=0;a<16000&&trees.length<420;a++){
   if(h<=W||blocked[i*N+j]||trail[i*N+j]||rnd()>forestP(i,j,h)||Math.hypot(i-pond.i,j-pond.j)<pond.r+1.5||Math.abs(i-den.i)<4&&Math.abs(j-den.j)<5)continue;
   if(trees.some(t=>Math.hypot(t.i-i,t.j-j)<2.7))continue;
   const type=treeType(bioOf(i,j,h),h,i,j);
-  const tree={i,j,type,x:cx(i),z:cx(j),base:h,g:1,dead:false,char:0,st:'alive',t0:trunkList.length,l0:leaves.length};trees.push(tree);blocked[i*N+j]=1;
+  const tree={i,j,type,x:cx(i),z:cx(j),base:h,g:1,dead:false,char:0,st:'alive',t0:trunkList.length,l0:leaves.length};trees.push(tree);
+  {const v=pick(TVAR),br=R(.84,1.12);tree.tn=new THREE.Color(v[0]*br*R(.96,1.04),v[1]*br*R(.96,1.04),v[2]*br*R(.96,1.04));tree.off=R(-.22,.22);if(LEAF[type]&&LEAF[type].au)tree.au=C(pick(LEAF[type].au))} // every tree has its own tint, autumn colour and timingblocked[i*N+j]=1;
   const x=cx(i),z=cx(j),base=h,bark=C(BARK[type]);
   const young=rnd()<.1&&type!=='cactus'&&type!=='palm',crown=young?R(.55,.7):R(.88,1.22),lean=!young&&type!=='cactus'&&rnd()<.35,lx=lean?R(-.09,.09):0,lz=lean?R(-.09,.09):0;
   const th=young?RI(1,2):Math.max(1,{pine:RI(4,6),oak:RI(3,5),birch:RI(4,6),maple:RI(3,5),cherry:RI(2,3),acacia:RI(4,5),willow:RI(3,4),palm:RI(5,7),cactus:RI(2,4)}[type]+(rnd()<.2?1:0));
@@ -488,7 +491,7 @@ for(let a=0;a<16000&&trees.length<420;a++){
   else for(let y=0;y<th;y++){
     const ao=.7+.3*Math.min(1,y/3);
     const c=(type==='birch'&&rnd()<.25?C('#2e2e2e'):bark.clone().multiplyScalar(R(.88,1.08))).multiplyScalar(ao);
-    tpush(x+lx*y,base+y+.5,z+lz*y,c);
+    {const tw=(TW[type]||.8)*(1-.28*y/th);tpush(x+lx*y,base+y+.5,z+lz*y,c,tw,1,tw)}
     for(const[dx,dz]of DIRS)if(rnd()<.45){ // raised bark plates and birch flecks
       const pc=type==='birch'?C(rnd()<.6?'#2e2e2e':'#cfc9b8'):bark.clone().multiplyScalar(R(.58,.75)*ao);
       tpush(x+lx*y+dx*.52,base+y+R(.3,.7),z+lz*y+dz*.52,pc,dx?.08:R(.2,.5),type==='birch'?R(.12,.25):R(.3,.75),dz?.08:R(.2,.5));
@@ -505,9 +508,16 @@ for(let a=0;a<16000&&trees.length<420;a++){
   if(type==='cactus'){}
   else if(type==='acacia'){const y=base+th;for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++){const q=dx*dx+dz*dz;if(q<=7&&rnd()>.08)cells.push([dx,y,dz]);if(q<=2&&rnd()>.1)cells.push([dx,y+1,dz])}}
   else if(type==='palm'){const y=base+th;cells.push([0,y,0],[0,y+1,0]);for(const[dx,dz]of[[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){const L=dx&&dz?2:3;for(let k=1;k<=L;k++)cells.push([dx*k,y+(k>=L?-1:0),dz*k])}}
-  else if(type==='pine'){const top=base+th+3,bot=base+2;for(let y=bot;y<=top;y++){const r=((top-y)/(top-bot)*2.5+.35)*Math.min(1.12,crown);for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)if(dx*dx+dz*dz<=r*r&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
-  else{const P={oak:[R(2,2.6),.85,.5],maple:[R(1.8,2.3),1.15,1],birch:[R(1.4,1.7),2.4,1],cherry:[R(2.2,2.8),1.3,.5],willow:[R(2.2,2.8),.8,.5]}[type];const[r0,vy,off]=P,r=r0*crown,cy=base+th+off,ry=r*vy;
-    for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)for(let dy=-4;dy<=4;dy++){const y=Math.round(cy+dy);if((dx*dx+dz*dz)/(r*r)+((y-cy)**2)/(ry*ry)<=1&&rnd()>.06&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
+  else if(type==='pine'){const wide=rnd()<.35,top=base+th+(wide?2:RI(3,5)),bot=base+(wide?1:2),sp=wide?3.1:RI(17,23)/10;tree.pv=wide?1:0; // broad firs and slim tiered spruces
+    for(let y=bot;y<=top;y++){const r=Math.min(3.3,((top-y)/(top-bot)*sp+.35)*(((y-bot)&1)?.72:1)*Math.min(1.12,crown));for(let dx=-3;dx<=3;dx++)for(let dz=-3;dz<=3;dz++)if(dx*dx+dz*dz<=r*r&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
+  else{ // broadleaf crowns are built from overlapping lobes, each species with its own silhouette
+    const R0=({oak:R(2.1,2.7),maple:R(1.8,2.3),birch:R(1.3,1.6),cherry:R(2.2,2.8),willow:R(2.2,2.8)}[type]||2)*crown,cy=base+th+({oak:.5,maple:1,birch:1.2,cherry:.4,willow:.4}[type]||.5),lobes=[],holes=type==='birch'?.14:.06;
+    if(type==='oak'){lobes.push([0,0,0,R0*.85,R0*.72]);for(let n=RI(2,4);n-->0;){const an=R(0,6.28),d=R0*R(.55,.9);lobes.push([Math.cos(an)*d,R(-.4,.7),Math.sin(an)*d,R0*R(.5,.68),R0*R(.45,.6)])}}
+    else if(type==='maple')lobes.push([0,0,0,R0,R0*1.1],[R(-.3,.3),R0*.85,R(-.3,.3),R0*.55,R0*.6]);
+    else if(type==='birch'){lobes.push([0,0,0,R0,R0*1.9]);for(let n=RI(1,2);n-->0;)lobes.push([R(-.6,.6),R(-1.8,1.8),R(-.6,.6),R0*.75,R0*1.1])}
+    else if(type==='cherry'){lobes.push([0,0,0,R0,R0*.58]);for(let n=RI(2,3);n-->0;){const an=R(0,6.28);lobes.push([Math.cos(an)*R0*.7,R(0,.5),Math.sin(an)*R0*.7,R0*.55,R0*.4])}}
+    else lobes.push([0,0,0,R0,R0*.75]);
+    for(let dx=-4;dx<=4;dx++)for(let dz=-4;dz<=4;dz++)for(let dy=-5;dy<=5;dy++){const y=Math.round(cy+dy);if(lobes.some(([ox,oy,oz,rr,ry])=>((dx-ox)**2+(dz-oz)**2)/(rr*rr)+((y-cy-oy)**2)/(ry*ry)<=1)&&rnd()>holes&&!(dx===0&&dz===0&&y<base+th))cells.push([dx,y,dz])}}
   if(type==='willow'){const have=new Set(cells.map(c=>c.join(',')));for(const c of cells.slice()){if(Math.hypot(c[0],c[2])>1.5&&rnd()<.5){const n=RI(1,3);for(let q=1;q<=n;q++){const k=[c[0],c[1]-q,c[2]].join(',');if(!have.has(k)){have.add(k);cells.push([c[0],c[1]-q,c[2]])}}}}}
   { // airier canopy: drop some outer-shell cubes that sit in the thick of the crown (the silhouette tips stay), which also lightens the shadow pass
     const k0=new Set(cells.map(c=>c.join(',')));
@@ -547,8 +557,8 @@ const LEAF_BEGIN=`vec3 transformed=vec3(position);if(leafHidden())transformed=ve
 const leafGeo=new THREE.OctahedronGeometry(.8,0).toNonIndexed();
 {const P=leafGeo.attributes.position,Nn=leafGeo.attributes.normal,v=new THREE.Vector3();for(let k=0;k<P.count;k++){v.fromBufferAttribute(P,k).normalize();Nn.setXYZ(k,v.x,v.y,v.z)}} // round shading on a leafy clump
 {const n=leaves.length,sp=new Float32Array(n*3),su=new Float32Array(n*3),au=new Float32Array(n*3),P=new Float32Array(n*4),Q=new Float32Array(n*4),T=new Float32Array(n*2);
- leaves.forEach((L,k)=>{if(L.dec){const D=LEAF[L.type];D.sp.toArray(sp,k*3);D.su.toArray(su,k*3);L.au.toArray(au,k*3);Q[k*4]=D.spr[0];Q[k*4+1]=D.spr[1]}else{L.base.toArray(sp,k*3);Q[k*4]=0;Q[k*4+1]=1}
-   P[k*4]=L.jit;P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
+ const tc=new THREE.Color();leaves.forEach((L,k)=>{const T=L.tr;if(L.dec){const D=LEAF[L.type],tn=T&&T.tn;tc.copy(D.sp);if(tn)tc.multiply(tn);tc.toArray(sp,k*3);tc.copy(D.su);if(tn)tc.multiply(tn);tc.toArray(su,k*3);tc.copy(L.au);if(T&&T.au)tc.lerp(T.au,.75);tc.toArray(au,k*3);Q[k*4]=D.spr[0];Q[k*4+1]=D.spr[1]}else{tc.copy(L.base);if(T&&T.tn)tc.multiply(T.tn);tc.toArray(sp,k*3);Q[k*4]=0;Q[k*4+1]=1}
+   P[k*4]=L.jit+(T?T.off:0);P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
  const IA=(a,s)=>new THREE.InstancedBufferAttribute(a,s);
  leafGeo.setAttribute('aSp',IA(sp,3));leafGeo.setAttribute('aSu',IA(su,3));leafGeo.setAttribute('aAu',IA(au,3));leafGeo.setAttribute('aP',IA(P,4));leafGeo.setAttribute('aQ',IA(Q,4));
  const at=IA(T,2);at.setUsage(THREE.DynamicDrawUsage);leafGeo.setAttribute('aT',at)}
