@@ -327,7 +327,27 @@ const waterMat=new THREE.MeshLambertMaterial({color:'#3a86b8',transparent:true,o
 const water=new THREE.InstancedMesh(capGeo,waterMat,Math.max(1,waterAll.length));
 {const m=new THREE.Matrix4();waterAll.forEach(([i,j],k)=>{m.makeTranslation(cx(i),W-.15,cx(j));water.setMatrixAt(k,m)})}
 water.receiveShadow=true;water.frustumCulled=false;scene.add(water);
-const WATER=C('#3a86b8'),ICE=C('#d2ecf8');
+const WATER=C('#3a86b8'),ICE=C('#d2ecf8'),WI={uIce:{value:0}};
+// ripples, glints and shoreline foam are all drawn in the water's own shader (no extra geometry)
+{const E=new Float32Array(Math.max(1,waterAll.length)*4),lnd=(a,b)=>inB(a,b)&&H[a][b]>=W?1:0;
+ waterAll.forEach(([i,j],k)=>{E[k*4]=lnd(i+1,j);E[k*4+1]=lnd(i-1,j);E[k*4+2]=lnd(i,j+1);E[k*4+3]=lnd(i,j-1)});
+ capGeo.setAttribute('aE',new THREE.InstancedBufferAttribute(E,4)); // (capGeo is shared; only the water reads aE)
+ waterMat.onBeforeCompile=sh=>{sh.uniforms.uTime=WU.uTime;sh.uniforms.uIce=WI.uIce;
+  sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>\nattribute vec4 aE;varying vec3 vWp;varying vec2 vLoc;varying vec4 vE;').replace('#include <begin_vertex>','#include <begin_vertex>\nvWp=(modelMatrix*instanceMatrix*vec4(position,1.)).xyz;vLoc=position.xz+.5;vE=aE;');
+  sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>\nuniform float uTime,uIce;varying vec3 vWp;varying vec2 vLoc;varying vec4 vE;').replace('#include <color_fragment>',`#include <color_fragment>
+  {float t=uTime,r=sin(vWp.x*2.3+t*1.2)*sin(vWp.z*2.1-t*1.0)+.7*sin((vWp.x+vWp.z)*1.4+t*.7);
+   float gl=pow(max(0.,sin(vWp.x*7.3+t*1.9)*sin(vWp.z*6.1-t*1.6)),10.);
+   float e=max(max(vE.x*smoothstep(.62,1.,vLoc.x),vE.y*smoothstep(.38,0.,vLoc.x)),max(vE.z*smoothstep(.62,1.,vLoc.y),vE.w*smoothstep(.38,0.,vLoc.y)));
+   float fo=e*(.55+.45*sin(vWp.x*5.+vWp.z*4.+t*1.5))*smoothstep(.1,.5,.5+.5*sin(vWp.x*3.1+vWp.z*2.3-t*.8));
+   diffuseColor.rgb+=r*.022+gl*.22*(1.-uIce);diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.93,.97,.98),clamp(fo,0.,1.)*.75*(1.-uIce));
+   diffuseColor.a=min(1.,diffuseColor.a+fo*.3);}`)};
+ waterMat.customProgramCacheKey=()=>'water2'}
+// lily pads (and the odd bloom) in sheltered shallows
+{const lp=[];for(const[i,j]of waterAll){if(i<2||j<2||i>N-3||j>N-3||H[i][j]<W-1||rnd()>.09)continue;let near=false;for(const[a,b]of[[1,0],[-1,0],[0,1],[0,-1]])if(inB(i+a,j+b)&&H[i+a][j+b]>=W)near=true;if(!near&&rnd()>.3)continue;
+   for(let k=0,n=RI(1,3);k<n;k++)lp.push([cx(i)+R(-.35,.35),cx(j)+R(-.35,.35),R(.28,.5),R(0,6.28),rnd()<.15])}
+ if(lp.length){const pad=new THREE.InstancedMesh(box1,lamW(),lp.length),bl=[],m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3(),up=new THREE.Vector3(0,1,0);
+  lp.forEach((p,k)=>{q.setFromAxisAngle(up,p[3]);m.compose(v.set(p[0],W-.1,p[1]),q,sc.set(p[2],.03,p[2]*R(.8,1)));pad.setMatrixAt(k,m);pad.setColorAt(k,C(pick(['#3f8a3a','#4a9a3f','#357a35'])).multiplyScalar(R(.85,1.1)));if(p[4])bl.push([p[0],W-.02,p[1],.14,.08,.14,C(pick(['#f4a6c8','#f8f0f4']))])});
+  pad.receiveShadow=true;pad.frustumCulled=false;scene.add(pad);if(bl.length){const b=boxMesh(bl,lamW());b.castShadow=false}}}
 
 // ---------- rocks + den ----------
 const rockList=[];
@@ -1045,7 +1065,7 @@ function updateSeasonVisuals(s,quiet){
   bladeMat.color.copy(BL.dry).lerp(BL.sp,sm(0,.45,s)).lerp(BL.su,sm(.55,1.3,s)).lerp(BL.au,sm(1.9,2.5,s)).lerp(BL.dry,sm(2.75,3.1,s));
   fernMat.color.copy(FERN_G).lerp(FERN_B,sm(2.1,2.6,s));fernOn=s>=.15&&s<3.05;
   mossMat.color.copy(MOSS).lerp(SNOW,sn);
-  const ic=iceAmt(s);waterMat.color.copy(WATER).lerp(ICE,ic);waterMat.opacity=.74+.24*ic;
+  const ic=iceAmt(s);waterMat.color.copy(WATER).lerp(ICE,ic);WI.uIce.value=ic;waterMat.opacity=.74+.24*ic;
   furMat.color.copy(FUR_S).lerp(FUR_W,molt(s));deerMat.color.copy(DEER_S).lerp(DEER_W,sm(2.6,3.1,s)*(1-sm(3.8,3.98,s)));
 }
 
