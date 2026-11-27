@@ -192,13 +192,15 @@ const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(r
 const ARCH=pick(['valley','highlands','lowlands','lowlands','lowlands','coast']);
 const BIOME_IDS=['temperate','taiga','meadow','savanna','desert','swamp','birch','cherry'];
 const chosen=shuffle(BIOME_IDS).slice(0,RI(2,4));
-const bseeds=[];for(let k=0,n=RI(5,8);k<n;k++)bseeds.push({i:R(4,N-4),j:R(4,N-4),b:k<chosen.length?chosen[k]:pick(chosen)});
-const biomeAt=new Uint8Array(N*N),biomeT=new Float32Array(N*N);
+// biomes follow climate: two smooth noise fields (warmth and moisture) pick the nearest of this world's chosen biomes, so cold lands, dry lands and wet lands sit where they should
+const CLIM={taiga:[.12,.5],birch:[.34,.45],temperate:[.5,.55],cherry:[.5,.82],meadow:[.62,.3],savanna:[.84,.33],desert:[.92,.07],swamp:[.7,.94]};
+const biomeAt=new Uint8Array(N*N),biomeT=new Float32Array(N*N),bseeds=[];
 for(let i=0;i<N;i++)for(let j=0;j<N;j++){
-  const wi=i+(nz(i*.03,j*.03,700)-.5)*30,wj=j+(nz(i*.03,j*.03,740)-.5)*30;
+  const wi=i+(nz(i*.03,j*.03,700)-.5)*14,wj=j+(nz(i*.03,j*.03,740)-.5)*14;
+  const tt=clamp((nz(wi*.016,wj*.016,710)-.5)*2.6+.5),mm=clamp((nz(wi*.016,wj*.016,760)-.5)*2.6+.5);
   let d1=1e9,b1='',d2=1e9;
-  for(const q of bseeds){const d=Math.hypot(wi-q.i,wj-q.j);if(d<d1){if(q.b!==b1)d2=d1;d1=d;b1=q.b}else if(q.b!==b1&&d<d2)d2=d}
-  biomeAt[i*N+j]=BIOME_IDS.indexOf(b1);biomeT[i*N+j]=sm(0,10,d2-d1)}
+  for(const b of chosen){const q=CLIM[b],d=Math.hypot(tt-q[0],mm-q[1]);if(d<d1){d2=d1;d1=d;b1=b}else if(d<d2)d2=d}
+  biomeAt[i*N+j]=BIOME_IDS.indexOf(b1);biomeT[i*N+j]=sm(0,.1,d2-d1)}
 // mountains: a ring with passes, a few massifs, a coastal range, or just low hills
 const vc={i:C0+R(-8,8),j:C0+R(-8,8)},vax=R(.85,1.15),peaks=[];
 if(ARCH==='highlands')for(let k=0,n=RI(1,3);k<n;k++)peaks.push({i:R(20,N-20),j:R(20,N-20),r:R(16,26),h:R(8,15)});
@@ -219,10 +221,9 @@ const lakes=[];
 function lakeSpot(minD){let best=null,bs=1e9;for(let a=0;a<80;a++){const i=RI(18,N-18),j=RI(18,N-18);if(ARCH==='coast'&&seaU(i,j)<seaW+14)continue;if(lakes.some(L=>Math.hypot(L.i-i,L.j-j)<minD))continue;const sc=massif(i,j)+rnd()*2.5;if(sc<bs){bs=sc;best={i,j}}}return best}
 {const m=lakeSpot(0)||{i:C0,j:C0};lakes.push({i:m.i,j:m.j,r:R(7,11)})}
 for(let k=0,n=ARCH==='lowlands'?RI(2,4):RI(0,2);k<n;k++){const m=lakeSpot(26);if(m)lakes.push({i:m.i,j:m.j,r:R(4,7.5)})}
-if(chosen.includes('desert')){const q=bseeds.find(q=>q.b==='desert');if(q&&q.i>14&&q.j>14&&q.i<N-14&&q.j<N-14)lakes.push({i:q.i,j:q.j,r:R(3.5,5)})} // oasis
+if(chosen.includes('desert')){const di=BIOME_IDS.indexOf('desert');for(let a=0;a<120;a++){const i=RI(16,N-16),j=RI(16,N-16);if(biomeAt[i*N+j]===di&&biomeT[i*N+j]>.9&&!lakes.some(L=>Math.hypot(L.i-i,L.j-j)<20)){lakes.push({i,j,r:R(3.5,5)});break}}} // oasis
 const pond=lakes[0];
-const riverPts=[];if(lakes.length>1&&rnd()<.7){const A=lakes[0],B=lakes[1],ph=R(0,6.28),dx=B.i-A.i,dz=B.j-A.j,L=Math.hypot(dx,dz),px=-dz/L,pz=dx/L,amp=R(5,11);
-  for(let k=0;k<=90;k++){const t=k/90,w=Math.sin(t*Math.PI)*amp*Math.sin(t*Math.PI*2.4+ph);riverPts.push([A.i+dx*t+px*w,A.j+dz*t+pz*w])}}
+const HR=Array.from({length:N},()=>new Float32Array(N));
 for(let i=0;i<N;i++)for(let j=0;j<N;j++){
   const floorH=2.6+nz(i*.05,j*.05,0)*6.5,bid=BIOME_IDS[biomeAt[i*N+j]],m=biomeT[i*N+j];
   let tgt=floorH;
@@ -233,10 +234,25 @@ for(let i=0;i<N;i++)for(let j=0;j<N;j++){
   let h=floorH+(tgt-floorH)*m+massif(i,j);
   if(ARCH==='coast'){const sS=clamp((seaW-seaU(i,j))/8);h=h*(1-sS)+.4*sS}
   for(const L of lakes){const d=Math.hypot(i-L.i,(j-L.j)*.85);h-=Math.max(0,L.r+3.5-d)*1.15}
-  let rdst=1e9;for(const q of riverPts){const d=Math.hypot(i-q[0],j-q[1]);if(d<rdst)rdst=d}
-  const hw=1.5+nz(i*.1,j*.1,600)*1.2;
-  if(riverPts.length)h=Math.min(h,rdst<hw?2:3+(rdst-hw)*1.2);
+  HR[i][j]=h}
+// a light blur takes the noisy spikes off the land before it is cut into voxel steps
+const HS=HR.map(r=>r.slice());
+for(let i=1;i<N-1;i++)for(let j=1;j<N-1;j++)HS[i][j]=HR[i][j]*.4+(HR[i+1][j]+HR[i-1][j]+HR[i][j+1]+HR[i][j-1])*.1+(HR[i+1][j+1]+HR[i-1][j-1]+HR[i+1][j-1]+HR[i-1][j+1])*.05;
+// a river that really runs downhill: from the high ground, always towards lower land and a little inertia, until it reaches a lake, the sea or the map edge
+const riverPts=[];
+if(rnd()<.8){let best=null,bh=-1;for(let a=0;a<60;a++){const i=RI(10,N-10),j=RI(10,N-10);if(HS[i][j]>bh&&HS[i][j]<14){bh=HS[i][j];best={i,j}}}
+  if(best){let ci=best.i,cj=best.j,pi=0,pj=0;const seen=new Set();
+   for(let step=0;step<420;step++){riverPts.push([ci,cj,HS[ci][cj]]);seen.add(ci*N+cj);if(HS[ci][cj]<W-.3&&step>4)break;
+    let nb=null,bs=1e9;for(let di=-1;di<=1;di++)for(let dj=-1;dj<=1;dj++){if(!di&&!dj)continue;const a=ci+di,b=cj+dj;if(a<2||b<2||a>N-3||b>N-3||seen.has(a*N+b))continue;const l=Math.hypot(di,dj),sc=HS[a][b]-.5*(di*pi+dj*pj)/l+R(0,.45)+(l>1?.15:0);if(sc<bs){bs=sc;nb=[a,b,di,dj]}}
+    if(!nb||HS[nb[0]][nb[1]]>HS[ci][cj]+1.2)break;ci=nb[0];cj=nb[1];pi=nb[2];pj=nb[3]}}}
+const wetPts=riverPts.filter(q=>q[2]<=9); // the stream only cuts a bed once the land has fallen low enough to hold water
+for(let i=0;i<N;i++)for(let j=0;j<N;j++){
+  let h=HS[i][j],rdst=1e9;
+  if(wetPts.length){for(const q of wetPts){const d=Math.hypot(i-q[0],j-q[1]);if(d<rdst)rdst=d}
+   const hw=1.3+nz(i*.1,j*.1,600)*1.1;if(rdst<hw+4)h=Math.min(h,rdst<hw?2:3+(rdst-hw)*1.2)}
   H[i][j]=clamp(Math.floor(h),1,HMAX)}
+// single-cell spikes and pits on low ground are levelled
+for(let i=1;i<N-1;i++)for(let j=1;j<N-1;j++){const h=H[i][j];if(h>=13||h<W)continue;const n=[H[i+1][j],H[i-1][j],H[i][j+1],H[i][j-1]],mx=Math.max(...n),mn=Math.min(...n);if(h-mx>=2)H[i][j]=mx+1;else if(mn-h>=2&&mn>=W)H[i][j]=mn-1}
 const bioOf=(i,j,h)=>h>=13?'taiga':BIOME_IDS[biomeAt[i*N+j]]; // high ground is always conifer country
 // the world's name comes from its shape and its commonest biome
 const WORLD=(()=>{const cnt={};for(let k=0;k<N*N;k++)cnt[biomeAt[k]]=(cnt[biomeAt[k]]||0)+1;const top=BIOME_IDS[+Object.keys(cnt).sort((a,b)=>cnt[b]-cnt[a])[0]];
