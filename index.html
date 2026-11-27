@@ -283,6 +283,21 @@ function shaderMod(mat,key,head,begin,afterColor){
       .replace('#include <begin_vertex>',begin);
     if(afterColor)sh.vertexShader=sh.vertexShader.replace('#include <color_vertex>','#include <color_vertex>\n'+afterColor)};
   return mat}
+// procedural surface texture: cheap world-space noise added in the fragment shader (no image files)
+const TEX_GLSL=`varying vec3 vWp;
+float h31(vec3 p){p=fract(p*.1031);p+=dot(p,p.zyx+31.32);return fract((p.x+p.y)*p.z);}
+float vn(vec3 p){vec3 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x),mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x),mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y),f.z);}`;
+function texMod(mat,key,code){const prev=mat.onBeforeCompile,base=mat.customProgramCacheKey();
+  mat.customProgramCacheKey=()=>base+key;
+  mat.onBeforeCompile=(sh,r)=>{if(prev)prev.call(mat,sh,r);
+    sh.vertexShader=sh.vertexShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+'varying vec3 vWp;').replace('#include <project_vertex>','#include <project_vertex>'+String.fromCharCode(10)+'vec4 wq=vec4(transformed,1.);'+String.fromCharCode(10)+'#ifdef USE_INSTANCING'+String.fromCharCode(10)+'wq=instanceMatrix*wq;'+String.fromCharCode(10)+'#endif'+String.fromCharCode(10)+'vWp=(modelMatrix*wq).xyz;');
+    sh.fragmentShader=sh.fragmentShader.replace('#include <common>','#include <common>'+String.fromCharCode(10)+TEX_GLSL).replace('#include <color_fragment>','#include <color_fragment>'+String.fromCharCode(10)+code)};
+  return mat}
+const TEX_GROUND='{float a=vn(vWp*1.1),b=vn(vec3(vWp.x*15.,vWp.y*2.,vWp.z*15.)),c=h31(floor(vWp*9.));diffuseColor.rgb*=.8+.2*a+.2*b+.1*(c-.5);}';
+const TEX_SIDE='{float a=vn(vec3(vWp.x*2.5,vWp.y*5.5,vWp.z*2.5)),b=vn(vWp*11.);diffuseColor.rgb*=.76+.26*a+.16*b;}';
+const TEX_BARK='{float a=vn(vec3(vWp.x*11.,vWp.y*1.3,vWp.z*11.)),b=vn(vec3(vWp.x*28.,vWp.y*3.,vWp.z*28.));diffuseColor.rgb*=.66+.42*a+.18*b;}';
+const TEX_LEAF='{float a=vn(vWp*5.5),c=h31(floor(vWp*13.));diffuseColor.rgb*=.78+.32*a+.14*(c-.5);}';
+const TEX_ROCK='{float a=vn(vWp*4.),b=vn(vWp*13.);diffuseColor.rgb*=.74+.3*a+.18*b;}';
 // a winding trail across the land: the cheapest walkable route between two far-apart points (kind to slopes, shy of rock, willing to bridge a narrow stretch of water)
 const trail=new Uint8Array(N*N),deckList=[],pathSet=new Set();
 {const INF=1e9,hI=c=>H[c/N|0][c%N];
@@ -307,6 +322,7 @@ const trail=new Uint8Array(N*N),deckList=[],pathSet=new Set();
    flush(idx);trail[c]=1;const a=ax?i:i+1,b2=ax?j+1:j;if(inB(a,b2)&&H[a][b2]>=W&&H[a][b2]<=12)trail[a*N+b2]=1});
   flush(path.length)}}
 const box1=new THREE.BoxGeometry(1,1,1);
+{const P=box1.attributes.position,Nn=box1.attributes.normal,v=new THREE.Vector3(),n=new THREE.Vector3();for(let k=0;k<P.count;k++){v.fromBufferAttribute(P,k).normalize();n.fromBufferAttribute(Nn,k).multiplyScalar(.75).addScaledVector(v,.7).normalize();Nn.setXYZ(k,n.x,n.y,n.z)}} // pillow-soft shading so cubes stop reading as hard cubes
 const lamW=()=>new THREE.MeshLambertMaterial({color:'#fff'});
 const DIRT=C('#7a5532'),STONE=C('#7d7f84'),SAND=C('#d6c08a'),WETSAND=C('#b29f70'),SNOW=C('#eef4fa');
 const TINT={taiga:{c:C('#4f8a78'),a:.3},meadow:{c:C('#a6dc58'),a:.22},savanna:{c:C('#d4b75a'),a:.6},swamp:{c:C('#46683a'),a:.5},birch:{c:C('#a6d45a'),a:.15},cherry:{c:C('#86d472'),a:.15}};
@@ -328,13 +344,13 @@ for(let i=0;i<N;i++)for(let j=0;j<N;j++){
       const col=h>=W&&(h>=12||h-nh>=3||y<h-3)?rockCol(y,i,j):y===h-1?(h<W?WETSAND:SIDEC).clone().multiplyScalar(R(.86,1)):(y>=h-3?DIRT:STONE).clone().multiplyScalar(R(.9,1.08));
       quad(B,[cx(i)+di*.5,y+.5,cx(j)+dj*.5],[dj*.5,0,-di*.5],[0,.5,0],col,di,0,dj)}}
 }
-const sideMat=new THREE.MeshLambertMaterial({vertexColors:true});
+const sideMat=texMod(new THREE.MeshLambertMaterial({vertexColors:true}),'side',TEX_SIDE);
 for(let ci=0;ci<NCH;ci++)for(let cj=0;cj<NCH;cj++){const B=chunkBuf[ci*NCH+cj];if(!B.p.length)continue;
   const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(B.p,3));g.setAttribute('normal',new THREE.Float32BufferAttribute(B.n,3));g.setAttribute('color',new THREE.Float32BufferAttribute(B.c,3));
   g.computeBoundingSphere();const m=new THREE.Mesh(g,sideMat);m.receiveShadow=true;scene.add(m)}
 chunkBuf.length=0;
 const capGeo=new THREE.PlaneGeometry(1,1);capGeo.rotateX(-Math.PI/2);
-const terrain=new THREE.InstancedMesh(capGeo,lamW(),Math.max(1,tops.length));
+const terrain=new THREE.InstancedMesh(capGeo,texMod(lamW(),'ground',TEX_GROUND),Math.max(1,tops.length));
 {const m=new THREE.Matrix4(),w=C('#fff');tops.forEach((t,k)=>{m.makeTranslation(cx(t.i),H[t.i][t.j],cx(t.j));terrain.setMatrixAt(k,m);terrain.setColorAt(k,w)})}
 terrain.receiveShadow=true;terrain.castShadow=false;terrain.frustumCulled=false;scene.add(terrain);
 // water: one flat translucent quad per cell
@@ -376,7 +392,9 @@ for(let k=0;k<260;k++){const i=RI(2,N-3),j=RI(2,N-3);if(H[i][j]<=W||blocked[i*N+
   rockList.push([cx(i)+R(-.15,.15),H[i][j]+s*sy/2,cx(j)+R(-.15,.15),s*sy,R(0,1.57),R(-.5,.5),s*R(.9,1.35),s*R(.9,1.35),moss]);
   for(let q=0,n=RI(0,2);q<n;q++){const t=s*R(.35,.6);rockList.push([cx(i)+R(-.38,.38),H[i][j]+t*.4,cx(j)+R(-.38,.38),t*.8,R(0,1.57),R(-.5,.5),t,t*R(.9,1.2),moss])}
   blocked[i*N+j]=1}
-const rocks=new THREE.InstancedMesh(box1,lamW(),rockList.length);
+const rockGeo=new THREE.IcosahedronGeometry(.62,1);
+{const P=rockGeo.attributes.position,v=new THREE.Vector3();for(let k=0;k<P.count;k++){v.fromBufferAttribute(P,k);const f=.82+.36*hash(Math.round(v.x*997),Math.round(v.y*991)+Math.round(v.z*983)*7);v.multiplyScalar(f);P.setXYZ(k,v.x,v.y*.85,v.z)}rockGeo.computeVertexNormals()}
+const rocks=new THREE.InstancedMesh(rockGeo,texMod(lamW(),'rock',TEX_ROCK),rockList.length);
 {const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3(),eu=new THREE.Euler();rockList.forEach((r,k)=>{const sy=r[3];q.setFromEuler(eu.set((r[5]||0)*.25,r[4]||0,(r[5]||0)*.2));m.compose(v.set(r[0],r[1],r[2]),q,sc.set(r[6]||sy,sy,r[7]||sy));rocks.setMatrixAt(k,m);rocks.setColorAt(k,C('#80838a').multiplyScalar(R(.8,1.1)).lerp(C('#6f8a58'),r[8]||0))})}
 rocks.castShadow=rocks.receiveShadow=true;scene.add(rocks);
 // ---------- wooden footbridges where the trail crosses water ----------
@@ -404,12 +422,16 @@ LEAF.bush={sp:C('#79c24c'),su:C('#3d7f2e'),spr:[.45,1.1],au:['#a0451f','#c06a2a'
 const trees=[],trunkList=[],leaves=[];
 const BARK={acacia:'#7a5a38',willow:'#5d4a33',palm:'#8a6a44',cactus:'#3f8a3f',pine:'#5b3b24',oak:'#6b4a2f',maple:'#6e4a33',cherry:'#5a3a2e',birch:'#e9e5da'};
 const DIRS=[[1,0],[-1,0],[0,1],[0,-1]];
-const tpush=(x,y,z,c,sx=1,sy=1,sz=1)=>trunkList.push([x,y,z,c,sx,sy,sz]);
+const QV=new THREE.Quaternion(),QX=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0),Math.PI/2),QZ=new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0,0,1),Math.PI/2);
+// trunk pieces are round: horizontal branches are turned onto their side
+const tpush=(x,y,z,c,sx=1,sy=1,sz=1)=>{if(sx>sy*1.3&&sx>sz)trunkList.push([x,y,z,c,sy*1.1,sx,sz*1.1,QZ]);else if(sz>sy*1.3&&sz>sx)trunkList.push([x,y,z,c,sx*1.1,sz,sy*1.1,QX]);else trunkList.push([x,y,z,c,sx*1.12,sy,sz*1.12,QV])};
 function mkLeaf(type,x,y,z,sc,top,hf){
   const L={x,y,z,sc,type,dec:type!=='pine'&&type!=='palm',th:rnd(),jit:R(-.15,.15),sh:R(.9,1.06)*(.72+.36*hf)+(top?.06:0),vis:true,top};
   if(L.dec)L.au=C(pick(LEAF[type].au));else L.base=C(type==='palm'?pick(['#3f8a3a','#4a9a3f']):rnd()<.5?'#2f6438':'#285a32').multiplyScalar(L.sh);
+  const k1=Math.round(x*100),k2=Math.round(z*100+y*37);L.q=new THREE.Quaternion().setFromEuler(LEu.set(hash(k1,k2)*6.28,hash(k2,k1+5)*6.28,hash(k1+9,k2+3)*6.28));L.a=.88+.3*hash(k1+1,k2);L.b=.88+.3*hash(k1,k2+1);L.c=.88+.3*hash(k1+2,k2+2);
   leaves.push(L);return L;
 }
+const LEu=new THREE.Euler(),LV=new THREE.Vector3(),LS=new THREE.Vector3();
 const FACES=[[1,0,0],[-1,0,0],[0,0,1],[0,0,-1],[0,1,0],[0,-1,0]];
 const DENS={temperate:.95,taiga:.9,meadow:.06,savanna:.12,desert:.045,swamp:.35,birch:.95,cherry:.75};
 const clearings=[];for(let k=0,n=RI(3,6);k<n;k++)clearings.push({i:R(10,N-10),j:R(10,N-10),r:R(4,8)});
@@ -489,24 +511,26 @@ for(let a=0,n=0;a<12000&&n<300;a++){
     if(berry&&top&&rnd()<.55)berrySpots.push({x:x+dx*.5+R(-.15,.15),y:h+dy*.5+.48,z:z+dz*.5+R(-.15,.15),bush})}
   bush.l1=leaves.length;for(let k=bush.l0;k<bush.l1;k++)leaves[k].tr=bush;
 }
-const trunks=new THREE.InstancedMesh(box1,lamW(),trunkList.length);
-{const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();trunkList.forEach((b,k)=>{m.compose(v.set(b[0],b[1],b[2]),q,sc.set(b[4],b[5],b[6]));trunks.setMatrixAt(k,m);trunks.setColorAt(k,b[3])})}
+const trunkGeo=new THREE.CylinderGeometry(.5,.5,1,8,1);
+const trunks=new THREE.InstancedMesh(trunkGeo,texMod(lamW(),'bark',TEX_BARK),trunkList.length);
+{const m=new THREE.Matrix4(),q=new THREE.Quaternion(),v=new THREE.Vector3(),sc=new THREE.Vector3();trunkList.forEach((b,k)=>{m.compose(v.set(b[0],b[1],b[2]),b[7],sc.set(b[4],b[5],b[6]));trunks.setMatrixAt(k,m);trunks.setColorAt(k,b[3])})}
 trunks.castShadow=trunks.receiveShadow=true;scene.add(trunks);
 // leaves of a growing tree are scaled towards its base
-const leafM=(L,m)=>{const T=L.tr,g=T?T.g:1;if(g>=1)return m.makeScale(L.sc,L.sc,L.sc).setPosition(L.x,L.y,L.z);const q=L.sc*Math.max(.02,g);return m.makeScale(q,q,q).setPosition(T.x+(L.x-T.x)*g,T.base+(L.y-T.base)*g,T.z+(L.z-T.z)*g)};
+const leafM=(L,m)=>{const T=L.tr,g=T?T.g:1;if(g>=1)return m.compose(LV.set(L.x,L.y,L.z),L.q,LS.set(L.sc*L.a,L.sc*L.b,L.sc*L.c));const q=L.sc*Math.max(.02,g);return m.compose(LV.set(T.x+(L.x-T.x)*g,T.base+(L.y-T.base)*g,T.z+(L.z-T.z)*g),L.q,LS.set(q*L.a,q*L.b,q*L.c))};
 const LEAF_GLSL=`attribute vec3 aSp;attribute vec3 aSu;attribute vec3 aAu;attribute vec4 aP;attribute vec4 aQ;attribute vec2 aT;
 bool leafHidden(){return aT.y>.5||(aP.w>.5&&aP.y>=uFol);}
 vec3 leafCol(){vec3 c;if(aP.w>.5){float ls=uS+aP.x;if(ls>3.5)ls-=4.;c=mix(aSp,aSu,smoothstep(aQ.x,aQ.y,ls));c=mix(c,aAu,smoothstep(1.85,2.4,ls))*aP.z;}
  else{c=aSp;if(aQ.z>.5&&uSnow>aP.y*.9)c=uSnowC;}return mix(c,vec3(.012,.01,.008),aT.x);}`;
 const LEAF_BEGIN=`vec3 transformed=vec3(position);if(leafHidden())transformed=vec3(0.);else{vec3 ip=instanceMatrix[3].xyz;float ph=uTime*1.4+ip.x*.31+ip.z*.23+ip.y*.17;transformed.x+=sin(ph)*uWind*.05;transformed.z+=cos(ph*.8)*uWind*.035;}`;
-const leafGeo=box1.clone();
+const leafGeo=new THREE.OctahedronGeometry(.8,0).toNonIndexed();
+{const P=leafGeo.attributes.position,Nn=leafGeo.attributes.normal,v=new THREE.Vector3();for(let k=0;k<P.count;k++){v.fromBufferAttribute(P,k).normalize();Nn.setXYZ(k,v.x,v.y,v.z)}} // round shading on a leafy clump
 {const n=leaves.length,sp=new Float32Array(n*3),su=new Float32Array(n*3),au=new Float32Array(n*3),P=new Float32Array(n*4),Q=new Float32Array(n*4),T=new Float32Array(n*2);
  leaves.forEach((L,k)=>{if(L.dec){const D=LEAF[L.type];D.sp.toArray(sp,k*3);D.su.toArray(su,k*3);L.au.toArray(au,k*3);Q[k*4]=D.spr[0];Q[k*4+1]=D.spr[1]}else{L.base.toArray(sp,k*3);Q[k*4]=0;Q[k*4+1]=1}
    P[k*4]=L.jit;P[k*4+1]=L.th;P[k*4+2]=L.sh;P[k*4+3]=L.dec?1:0;Q[k*4+2]=L.top?1:0});
  const IA=(a,s)=>new THREE.InstancedBufferAttribute(a,s);
  leafGeo.setAttribute('aSp',IA(sp,3));leafGeo.setAttribute('aSu',IA(su,3));leafGeo.setAttribute('aAu',IA(au,3));leafGeo.setAttribute('aP',IA(P,4));leafGeo.setAttribute('aQ',IA(Q,4));
  const at=IA(T,2);at.setUsage(THREE.DynamicDrawUsage);leafGeo.setAttribute('aT',at)}
-const leafMesh=new THREE.InstancedMesh(leafGeo,shaderMod(lamW(),'leaf',LEAF_GLSL,LEAF_BEGIN,'vColor=leafCol();'),leaves.length);
+const leafMesh=new THREE.InstancedMesh(leafGeo,texMod(shaderMod(lamW(),'leaf',LEAF_GLSL,LEAF_BEGIN,'vColor=leafCol();'),'leaftex',TEX_LEAF),leaves.length);
 {const m=new THREE.Matrix4(),w=C('#fff');leaves.forEach((L,k)=>{leafMesh.setMatrixAt(k,leafM(L,m));leafMesh.setColorAt(k,w)})}
 leafMesh.customDepthMaterial=shaderMod(new THREE.MeshDepthMaterial({depthPacking:THREE.RGBADepthPacking}),'leafDepth',LEAF_GLSL,LEAF_BEGIN);
 leafMesh.castShadow=leafMesh.receiveShadow=true;scene.add(leafMesh);
@@ -1091,7 +1115,7 @@ const MOSSC=C('#3f7a34'),MUDG=C('#6b5b3d'),PEB=C('#8d8d88');
 const tca=terrain.instanceColor.array;
 let visSn=0,visLt=0,topDirty=false;const CHARG=C('#2a241e'),WORN=C('#8a7454'),GRAZED=C('#a2a457');
 function paintTop(t){
-  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar(t.jit*t.ao);if(t.tint)tc.lerp(t.tint,t.ta);if(t.moss>0)tc.lerp(MOSSC,t.moss*.45);if(t.mud>0)tc.lerp(MUDG,t.mud*.55);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.graze>.1)tc.lerp(GRAZED,t.graze*.3);if(t.wear>.12)tc.lerp(WORN,Math.min(1,(t.wear-.12)/.7)*.72)}else{tc.copy(t.fix||(t.kind==='path'?PATH:SAND)).multiplyScalar(t.jit*t.ao);if(t.mud>0&&!t.fix)tc.lerp(MUDG,t.mud*.4)}
+  if(t.kind==='grass'){tc.copy(gcol).multiplyScalar((1+(t.jit-1)*.45)*t.ao);if(t.tint)tc.lerp(t.tint,t.ta);if(t.moss>0)tc.lerp(MOSSC,t.moss*.45);if(t.mud>0)tc.lerp(MUDG,t.mud*.55);if(t.lit>0&&visLt>0)tc.lerp(t.litC,t.lit*visLt*.75);if(t.graze>.1)tc.lerp(GRAZED,t.graze*.3);if(t.wear>.12)tc.lerp(WORN,Math.min(1,(t.wear-.12)/.7)*.72)}else{tc.copy(t.fix||(t.kind==='path'?PATH:SAND)).multiplyScalar(t.jit*t.ao);if(t.mud>0&&!t.fix)tc.lerp(MUDG,t.mud*.4)}
   if(t.burn>0)tc.lerp(CHARG,t.burn*.9);
   if(visSn>t.snowR)tc.copy(SNOW).multiplyScalar(.95+(t.jit-1)*.4);
   const o=t.idx*3;tca[o]=tc.r;tca[o+1]=tc.g;tca[o+2]=tc.b;topDirty=true}
@@ -1536,7 +1560,7 @@ function setTreeMats(T){
     for(let k=T.t0;k<T.t1;k++){const b=trunkList[k];
       if(stump){if(k===T.t0){tm4.compose(tv.set(T.x,T.base+.3,T.z),Q0,tsc.set(1,.6,1));trunks.setMatrixAt(k,tm4)}else trunks.setMatrixAt(k,Z)}
       else if(hide)trunks.setMatrixAt(k,Z);
-      else{tm4.compose(tv.set(T.x+(b[0]-T.x)*q,T.base+(b[1]-T.base)*q,T.z+(b[2]-T.z)*q),Q0,tsc.set(b[4]*q,b[5]*q,b[6]*q));trunks.setMatrixAt(k,tm4)}}
+      else{tm4.compose(tv.set(T.x+(b[0]-T.x)*q,T.base+(b[1]-T.base)*q,T.z+(b[2]-T.z)*q),b[7],tsc.set(b[4]*q,b[5]*q,b[6]*q));trunks.setMatrixAt(k,tm4)}}
     trunks.instanceMatrix.addUpdateRange(T.t0*16,(T.t1-T.t0)*16);trunks.instanceMatrix.needsUpdate=true}
   for(let k=T.l0;k<T.l1;k++)leafMesh.setMatrixAt(k,leafM(leaves[k],tm4));
   leafMesh.instanceMatrix.addUpdateRange(T.l0*16,(T.l1-T.l0)*16);leafMesh.instanceMatrix.needsUpdate=true}
